@@ -1,6 +1,7 @@
 # CareerPilot
 
 CareerPilot is an AI-powered career operating system built for the Poridhi Codesprint hackathon. It turns a user's CV into the source of truth for job search, fit scoring, AI guidance, and day-to-day execution.
+- [System Design Document](docs/system-design-document.md)
 
 It covers the four required pillars:
 
@@ -96,6 +97,7 @@ flowchart TD
 
 Detailed diagram and supporting docs:
 
+- [System Design Document](docs/system-design-document.md)
 - [Architecture Diagram](docs/architecture/system-diagram.md)
 - [Architecture Overview](docs/architecture/overview.md)
 - [RAG Architecture](docs/architecture/rag.md)
