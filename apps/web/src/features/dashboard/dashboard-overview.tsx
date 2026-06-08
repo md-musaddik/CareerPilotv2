@@ -1,28 +1,23 @@
 import { Link } from "react-router-dom";
 import {
   ArrowRight,
-  Bot,
   BriefcaseBusiness,
   CalendarClock,
   CheckCircle2,
   CircleAlert,
-  Clock3,
   FileCheck2,
   Sparkles,
   Target,
+  UploadCloud,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useCurrentResume } from "@/features/resume/use-resume";
 import { calculateResumeStrength } from "@/features/resume/resume-strength";
-import {
-  workspaceApplications,
-  workspaceCalendarEvents,
-  workspaceGoals,
-} from "@/features/workspace/workspace-data";
+import { useCurrentResume } from "@/features/resume/use-resume";
+import { useWorkspaceOverview } from "@/features/workspace/use-workspace";
 
 function getErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Unable to load dashboard context.";
@@ -37,9 +32,9 @@ function DashboardLoadingState() {
         <Skeleton className="h-32" />
         <Skeleton className="h-32" />
       </div>
-      <div className="grid gap-5 xl:grid-cols-[1.1fr_0.9fr]">
-        <Skeleton className="h-[28rem]" />
-        <Skeleton className="h-[28rem]" />
+      <div className="grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
+        <Skeleton className="h-[24rem]" />
+        <Skeleton className="h-[24rem]" />
       </div>
     </div>
   );
@@ -52,92 +47,92 @@ function formatShortDate(value: string) {
   }).format(new Date(value));
 }
 
-function averageFitScore() {
-  if (workspaceApplications.length === 0) {
-    return 0;
-  }
-
-  return Math.round(
-    workspaceApplications.reduce((sum, item) => sum + item.fitScore, 0) / workspaceApplications.length,
-  );
-}
-
-function createInsights(resumeScore: number | null) {
-  const interviewingCount = workspaceApplications.filter((item) => item.status === "interviewing").length;
-  const savedCount = workspaceApplications.filter((item) => item.status === "saved").length;
-  const upcomingInterview = workspaceCalendarEvents.find((event) => event.type === "interview");
-  const lowestGoal = [...workspaceGoals].sort((left, right) => left.progress - right.progress)[0];
-
-  return [
-    {
-      title: "Resume Signal",
-      icon: FileCheck2,
-      tone: resumeScore !== null && resumeScore >= 75 ? "success" : "warning",
-      summary:
-        resumeScore !== null && resumeScore >= 75
-          ? `Your resume strength score is ${resumeScore}. The profile is solid enough to support targeted applications.`
-          : `Your resume strength score is ${resumeScore ?? 0}. Add more quantified evidence before wider outreach.`,
-      actionLabel: "Open resume workspace",
-      href: "/dashboard/workspace",
-    },
-    {
-      title: "Interview Readiness",
-      icon: Bot,
-      tone: interviewingCount > 0 ? "warning" : "secondary",
-      summary: upcomingInterview
-        ? `${interviewingCount} interview track${interviewingCount > 1 ? "s" : ""} active. Next milestone: ${upcomingInterview.title} on ${formatShortDate(upcomingInterview.date)}.`
-        : "No interview events on the calendar yet. Use Copilot to rehearse before they appear.",
-      actionLabel: "Open interview coach",
-      href: "/dashboard/copilot",
-    },
-    {
-      title: "Pipeline Momentum",
-      icon: BriefcaseBusiness,
-      tone: savedCount > 1 ? "warning" : "success",
-      summary:
-        savedCount > 1
-          ? `${savedCount} roles are still sitting in Saved. Move one or two forward while the fit is fresh.`
-          : "Your pipeline is moving. Most active roles have already crossed into applied or interview stages.",
-      actionLabel: "Review applications",
-      href: "/dashboard/workspace",
-    },
-    {
-      title: "Goal Pressure",
-      icon: Target,
-      tone: lowestGoal.progress < 50 ? "warning" : "success",
-      summary:
-        lowestGoal.progress < 50
-          ? `${lowestGoal.title} is only ${lowestGoal.progress}% complete. Tighten the next tasks before the deadline catches up.`
-          : "Goal progress looks steady. Keep the current cadence and protect the calendar blocks already in place.",
-      actionLabel: "Review goals",
-      href: "/dashboard/workspace",
-    },
-  ] as const;
-}
-
 export function DashboardOverview() {
   const currentResumeQuery = useCurrentResume();
+  const workspaceOverviewQuery = useWorkspaceOverview();
 
-  if (currentResumeQuery.isLoading) {
+  if (currentResumeQuery.isLoading || workspaceOverviewQuery.isLoading) {
     return <DashboardLoadingState />;
   }
 
   const resume = currentResumeQuery.data?.resume ?? null;
+  const workspace = workspaceOverviewQuery.data ?? null;
+  const stats = workspace?.stats;
   const resumeStrength = resume ? calculateResumeStrength(resume.parsedResume.editableProfile) : null;
-  const interviewTracks = workspaceApplications.filter((item) => item.status === "interviewing").length;
-  const completedTasks = workspaceGoals.reduce(
-    (sum, goal) => sum + goal.tasks.filter((task) => task.done).length,
-    0,
-  );
-  const totalTasks = workspaceGoals.reduce((sum, goal) => sum + goal.tasks.length, 0);
-  const insights = createInsights(resumeStrength?.score ?? null);
-  const applicationStatusCounts = [
-    { label: "Saved", count: workspaceApplications.filter((item) => item.status === "saved").length },
-    { label: "Applied", count: workspaceApplications.filter((item) => item.status === "applied").length },
-    { label: "Interviewing", count: workspaceApplications.filter((item) => item.status === "interviewing").length },
-    { label: "Offer", count: workspaceApplications.filter((item) => item.status === "offer").length },
-    { label: "Rejected", count: workspaceApplications.filter((item) => item.status === "rejected").length },
-  ];
+  const activeApplications = workspace?.applications ?? [];
+  const upcomingEvents = (workspace?.calendarEvents ?? [])
+    .filter((event) => new Date(event.date).getTime() >= Date.now())
+    .slice(0, 4);
+  const activeGoals = workspace?.goals ?? [];
+  const hasRealCareerData =
+    Boolean(resume) ||
+    Boolean(stats?.applicationCount) ||
+    Boolean(stats?.goalCount) ||
+    Boolean(stats?.todoCount) ||
+    Boolean(stats?.upcomingEventCount);
+
+  const completedTaskCount = stats?.completedTaskCount ?? 0;
+  const totalTaskCount = (workspace?.tasks ?? []).length;
+  const taskCompletion = totalTaskCount > 0 ? Math.round((completedTaskCount / totalTaskCount) * 100) : null;
+  const averageFitScore =
+    activeApplications.length > 0
+      ? Math.round(
+          activeApplications.reduce((sum, item) => sum + (item.fitScore ?? 0), 0) /
+            Math.max(activeApplications.filter((item) => typeof item.fitScore === "number").length, 1),
+        )
+      : null;
+
+  if (!hasRealCareerData) {
+    return (
+      <div className="flex flex-col gap-6">
+        <section className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold">Dashboard</h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Start with your resume so CareerPilot can ground jobs, guidance, goals, and progress in your actual profile.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button asChild>
+              <Link to="/dashboard/workspace?tab=resume&focus=resume-upload">
+                Upload CV
+                <UploadCloud data-icon="inline-end" />
+              </Link>
+            </Button>
+            <Button asChild variant="outline">
+              <Link to="/dashboard/assistant">
+                Open AI Assistant
+                <ArrowRight data-icon="inline-end" />
+              </Link>
+            </Button>
+          </div>
+        </section>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Nothing is being scored yet</CardTitle>
+            <CardDescription>
+              Upload a resume first. Once that is done, the dashboard will show real application, interview, goal, and task progress instead of placeholder metrics.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-4 md:grid-cols-3">
+            <div className="rounded-md border bg-background p-4">
+              <p className="text-sm font-medium">1. Upload your CV</p>
+              <p className="mt-2 text-sm text-muted-foreground">Parse PDF or DOCX into structured skills, projects, experience, and education.</p>
+            </div>
+            <div className="rounded-md border bg-background p-4">
+              <p className="text-sm font-medium">2. Search jobs</p>
+              <p className="mt-2 text-sm text-muted-foreground">See fit scores ranked against your real profile.</p>
+            </div>
+            <div className="rounded-md border bg-background p-4">
+              <p className="text-sm font-medium">3. Start tracking work</p>
+              <p className="mt-2 text-sm text-muted-foreground">Applications, goals, tasks, and calendar events will appear here automatically.</p>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   const analyticsCards = [
     {
@@ -148,20 +143,20 @@ export function DashboardOverview() {
     },
     {
       label: "Average Fit Score",
-      value: `${averageFitScore()}%`,
-      helper: "Across active application samples",
+      value: averageFitScore !== null ? `${averageFitScore}%` : "--",
+      helper: averageFitScore !== null ? "Across tracked applications with fit data" : "Track jobs to see fit trends",
       icon: Sparkles,
     },
     {
       label: "Interview Tracks",
-      value: `${interviewTracks}`,
-      helper: interviewTracks > 0 ? "Live practice pressure is real" : "No live loops yet",
-      icon: Bot,
+      value: `${stats?.interviewCount ?? 0}`,
+      helper: stats?.interviewCount ? "Active interview loops need prep" : "No interviews scheduled yet",
+      icon: BriefcaseBusiness,
     },
     {
       label: "Task Completion",
-      value: `${Math.round((completedTasks / Math.max(totalTasks, 1)) * 100)}%`,
-      helper: `${completedTasks} of ${totalTasks} goal tasks done`,
+      value: taskCompletion !== null ? `${taskCompletion}%` : "--",
+      helper: totalTaskCount > 0 ? `${completedTaskCount} of ${totalTaskCount} tasks complete` : "Create goals and tasks to track progress",
       icon: CheckCircle2,
     },
   ];
@@ -172,7 +167,7 @@ export function DashboardOverview() {
         <div>
           <h1 className="text-2xl font-semibold">Dashboard</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            A fast read on resume quality, pipeline health, upcoming interviews, and the next best move.
+            A real-time read on resume readiness, tracked applications, goals, and upcoming deadlines.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -183,22 +178,24 @@ export function DashboardOverview() {
             </Link>
           </Button>
           <Button asChild>
-            <Link to="/dashboard/copilot">
-              Open Copilot
+            <Link to="/dashboard/assistant">
+              Open AI Assistant
               <ArrowRight data-icon="inline-end" />
             </Link>
           </Button>
         </div>
       </section>
 
-      {currentResumeQuery.error ? (
+      {currentResumeQuery.error || workspaceOverviewQuery.error ? (
         <Card>
           <CardHeader>
             <div className="flex items-center gap-2">
               <CircleAlert className="text-destructive" />
-              <CardTitle className="text-base">Resume context unavailable</CardTitle>
+              <CardTitle className="text-base">Dashboard data is partially unavailable</CardTitle>
             </div>
-            <CardDescription>{getErrorMessage(currentResumeQuery.error)}</CardDescription>
+            <CardDescription>
+              {currentResumeQuery.error ? getErrorMessage(currentResumeQuery.error) : getErrorMessage(workspaceOverviewQuery.error)}
+            </CardDescription>
           </CardHeader>
         </Card>
       ) : null}
@@ -226,79 +223,64 @@ export function DashboardOverview() {
         })}
       </section>
 
-      <section className="grid gap-5 xl:grid-cols-[1.15fr_0.85fr]">
+      <section className="grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
         <Card>
           <CardHeader>
-            <CardTitle>AI Insight Cards</CardTitle>
-            <CardDescription>Deterministic product signals that make the Copilot and workflow feel grounded.</CardDescription>
+            <CardTitle>Progress Snapshot</CardTitle>
+            <CardDescription>Live data from your applications, goals, and tasks.</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-3 md:grid-cols-2">
-            {insights.map((insight) => {
-              const Icon = insight.icon;
-              const variant =
-                insight.tone === "success" ? "success" : insight.tone === "warning" ? "warning" : "secondary";
-
-              return (
-                <div key={insight.title} className="flex flex-col gap-3 rounded-md border bg-background p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex items-center gap-2">
-                      <div className="flex size-9 items-center justify-center rounded-md bg-primary/10 text-primary">
-                        <Icon />
-                      </div>
-                      <p className="text-sm font-semibold">{insight.title}</p>
-                    </div>
-                    <Badge variant={variant}>{insight.tone}</Badge>
-                  </div>
-                  <p className="text-sm text-muted-foreground">{insight.summary}</p>
-                  <Link className="text-sm font-medium text-primary" to={insight.href}>
-                    {insight.actionLabel}
-                  </Link>
-                </div>
-              );
-            })}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Application Analytics</CardTitle>
-            <CardDescription>Track how much of the pipeline is moving versus waiting for a push.</CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-4">
-            {applicationStatusCounts.map((item) => {
-              const percentage = Math.round((item.count / Math.max(workspaceApplications.length, 1)) * 100);
-
-              return (
-                <div key={item.label} className="flex flex-col gap-2">
-                  <div className="flex items-center justify-between gap-3 text-sm">
-                    <span className="font-medium">{item.label}</span>
-                    <span className="text-muted-foreground">
-                      {item.count} roles · {percentage}%
-                    </span>
-                  </div>
-                  <Progress value={percentage} />
-                </div>
-              );
-            })}
-            <div className="rounded-md border bg-background p-4 text-sm text-muted-foreground">
-              Average fit score is {averageFitScore()}%. The strongest return will usually come from pushing the highest-fit saved roles into tailored applications.
+            <div className="rounded-md border bg-background p-4">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-medium">Applications</p>
+                <Badge variant="secondary">{stats?.applicationCount ?? 0}</Badge>
+              </div>
+              <p className="mt-2 text-sm text-muted-foreground">
+                {stats?.savedCount ?? 0} saved, {stats?.interviewCount ?? 0} interviewing, {stats?.offerCount ?? 0} offers.
+              </p>
+            </div>
+            <div className="rounded-md border bg-background p-4">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-medium">Goals</p>
+                <Badge variant="secondary">{stats?.goalCount ?? 0}</Badge>
+              </div>
+              <p className="mt-2 text-sm text-muted-foreground">
+                {stats?.todoCount ?? 0} open tasks across your active goals.
+              </p>
+            </div>
+            <div className="rounded-md border bg-background p-4">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-medium">Resume readiness</p>
+                <Badge variant={stats?.resumeReady ? "success" : "warning"}>{stats?.resumeReady ? "Ready" : "Needs upload"}</Badge>
+              </div>
+              <p className="mt-2 text-sm text-muted-foreground">
+                {resumeStrength
+                  ? `Current score ${resumeStrength.score}. Improve weak sections before wider outreach.`
+                  : "Upload a CV to ground the assistant, jobs, and fit score."}
+              </p>
+            </div>
+            <div className="rounded-md border bg-background p-4">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-medium">Upcoming events</p>
+                <Badge variant="secondary">{stats?.upcomingEventCount ?? 0}</Badge>
+              </div>
+              <p className="mt-2 text-sm text-muted-foreground">Calendar is tracking real deadlines, interviews, and to-do dates.</p>
             </div>
           </CardContent>
         </Card>
-      </section>
 
-      <section className="grid gap-5 xl:grid-cols-[0.95fr_1.05fr]">
         <Card>
           <CardHeader>
             <CardTitle>Upcoming Agenda</CardTitle>
-            <CardDescription>Stay ahead of deadlines, interviews, and prep blocks.</CardDescription>
+            <CardDescription>Stay ahead of interviews, deadlines, and task due dates.</CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
-            {workspaceCalendarEvents
-              .slice()
-              .sort((left, right) => new Date(left.date).getTime() - new Date(right.date).getTime())
-              .slice(0, 4)
-              .map((event) => (
+            {upcomingEvents.length === 0 ? (
+              <div className="flex min-h-48 items-center justify-center rounded-md border border-dashed bg-muted/40 px-4 text-center text-sm text-muted-foreground">
+                No upcoming events yet. Add goals, task due dates, or calendar items from Workspace.
+              </div>
+            ) : (
+              upcomingEvents.map((event) => (
                 <div key={event.id} className="flex items-start gap-3 rounded-md border bg-background p-4">
                   <div className="flex size-9 items-center justify-center rounded-md bg-primary/10 text-primary">
                     <CalendarClock className="size-4" />
@@ -306,7 +288,17 @@ export function DashboardOverview() {
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                       <p className="text-sm font-medium">{event.title}</p>
-                      <Badge variant={event.type === "deadline" ? "destructive" : event.type === "interview" ? "warning" : "secondary"}>
+                      <Badge
+                        variant={
+                          event.type === "interview"
+                            ? "warning"
+                            : event.type === "goal" || event.type === "roadmap"
+                              ? "success"
+                              : event.type === "deadline"
+                                ? "destructive"
+                                : "secondary"
+                        }
+                      >
                         {event.type}
                       </Badge>
                     </div>
@@ -316,37 +308,69 @@ export function DashboardOverview() {
                     <p className="mt-2 text-sm text-muted-foreground">{event.detail}</p>
                   </div>
                 </div>
-              ))}
+              ))
+            )}
+          </CardContent>
+        </Card>
+      </section>
+
+      <section className="grid gap-5 xl:grid-cols-[0.95fr_1.05fr]">
+        <Card>
+          <CardHeader>
+            <CardTitle>Application Board Snapshot</CardTitle>
+            <CardDescription>Where tracked roles are currently sitting.</CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-4">
+            {[
+              { label: "Saved", count: stats?.savedCount ?? 0 },
+              { label: "Interviewing", count: stats?.interviewCount ?? 0 },
+              { label: "Offer", count: stats?.offerCount ?? 0 },
+              { label: "Rejected", count: stats?.rejectedCount ?? 0 },
+            ].map((item) => {
+              const percentage = Math.round((item.count / Math.max(stats?.applicationCount ?? 0, 1)) * 100);
+              return (
+                <div key={item.label} className="flex flex-col gap-2">
+                  <div className="flex items-center justify-between gap-3 text-sm">
+                    <span className="font-medium">{item.label}</span>
+                    <span className="text-muted-foreground">
+                      {item.count} roles - {percentage}%
+                    </span>
+                  </div>
+                  <Progress value={percentage} />
+                </div>
+              );
+            })}
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader>
-            <CardTitle>Goal Momentum</CardTitle>
-            <CardDescription>See where consistency is compounding and where attention is slipping.</CardDescription>
+            <CardTitle>Goal Progress</CardTitle>
+            <CardDescription>Real goal progress driven by linked tasks.</CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
-            {workspaceGoals.map((goal) => (
-              <div key={goal.id} className="rounded-md border bg-background p-4">
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <p className="text-sm font-semibold">{goal.title}</p>
-                    <p className="mt-1 text-sm text-muted-foreground">{goal.targetRole}</p>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Clock3 className="size-4" />
-                    Due {formatShortDate(goal.dueDate)}
-                  </div>
-                </div>
-                <div className="mt-4 flex flex-col gap-2">
-                  <div className="flex items-center justify-between gap-3 text-sm">
-                    <span className="font-medium">Progress</span>
-                    <span className="text-muted-foreground">{goal.progress}%</span>
-                  </div>
-                  <Progress value={goal.progress} />
-                </div>
+            {activeGoals.length === 0 ? (
+              <div className="flex min-h-48 items-center justify-center rounded-md border border-dashed bg-muted/40 px-4 text-center text-sm text-muted-foreground">
+                No goals yet. Create one in Workspace to start tracking deadlines and to-dos.
               </div>
-            ))}
+            ) : (
+              activeGoals.slice(0, 4).map((goal) => (
+                <div key={goal.id} className="rounded-md border bg-background p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-medium">{goal.title}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {goal.targetDate ? `Due ${formatShortDate(goal.targetDate)}` : "No target date set"}
+                      </p>
+                    </div>
+                    <Badge variant={goal.progress >= 70 ? "success" : goal.progress >= 40 ? "warning" : "secondary"}>
+                      {goal.progress}%
+                    </Badge>
+                  </div>
+                  <Progress className="mt-3" value={goal.progress} />
+                </div>
+              ))
+            )}
           </CardContent>
         </Card>
       </section>

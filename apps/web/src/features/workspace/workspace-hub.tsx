@@ -1,41 +1,49 @@
-import { useMemo, useState } from "react";
+import { FormEvent, useMemo, useState } from "react";
 import {
-  ArrowUpRight,
+  ArrowRight,
   BriefcaseBusiness,
   CalendarDays,
   Check,
-  ChevronRight,
   Circle,
   Clock3,
-  Flag,
-  MapPin,
+  FileText,
+  Plus,
   Sparkles,
   Target,
+  UploadCloud,
 } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { ResumeWorkspace } from "@/features/resume/resume-workspace";
 import {
-  type ApplicationStatus,
-  type CalendarEventType,
-  type WorkspaceApplication,
-  type WorkspaceGoal,
-  type WorkspaceTab,
-  workspaceApplications,
-  workspaceCalendarEvents,
-  workspaceGoals,
-  workspaceInsights,
-  workspaceSettings,
-  workspaceTabs,
-} from "@/features/workspace/workspace-data";
+  useCreateApplication,
+  useCreateCalendarEvent,
+  useCreateGoal,
+  useCreateGoalTask,
+  useUpdateApplication,
+  useUpdateTask,
+  useWorkspaceOverview,
+} from "@/features/workspace/use-workspace";
+import type {
+  CalendarItemType,
+  TrackerApplicationStatus,
+  WorkspaceApplication,
+  WorkspaceCalendarEvent,
+  WorkspaceGoal,
+  WorkspaceTask,
+} from "@/features/workspace/types";
+import { workspaceSettings, workspaceTabs, type WorkspaceTab } from "@/features/workspace/workspace-data";
 import { cn } from "@/lib/utils";
+
+const applicationStatuses: TrackerApplicationStatus[] = ["saved", "applied", "interviewing", "offer", "rejected"];
 
 function formatShortDate(value: string) {
   return new Intl.DateTimeFormat(undefined, {
@@ -59,7 +67,25 @@ function getStartOffset(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), 1).getDay();
 }
 
-function getStatusBadgeVariant(status: ApplicationStatus): "secondary" | "warning" | "success" | "destructive" {
+function getErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "Something went wrong. Please try again.";
+}
+
+function toDateTimeInputValue(date: Date) {
+  const offset = date.getTimezoneOffset();
+  const localDate = new Date(date.getTime() - offset * 60_000);
+  return localDate.toISOString().slice(0, 16);
+}
+
+function fromDateTimeInputValue(value: string): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  return new Date(value).toISOString();
+}
+
+function getStatusBadgeVariant(status: TrackerApplicationStatus): "secondary" | "warning" | "success" | "destructive" {
   switch (status) {
     case "offer":
       return "success";
@@ -69,6 +95,7 @@ function getStatusBadgeVariant(status: ApplicationStatus): "secondary" | "warnin
       return "destructive";
     case "saved":
     case "applied":
+    case "withdrawn":
     default:
       return "secondary";
   }
@@ -86,35 +113,37 @@ function getPriorityBadgeVariant(priority: WorkspaceGoal["priority"]): "success"
   }
 }
 
-function getEventBadgeVariant(type: CalendarEventType): "secondary" | "warning" | "success" | "destructive" {
+function getEventBadgeVariant(type: CalendarItemType): "secondary" | "warning" | "success" | "destructive" {
   switch (type) {
-    case "deadline":
-      return "destructive";
     case "interview":
       return "warning";
     case "goal":
     case "roadmap":
       return "success";
+    case "deadline":
+      return "destructive";
     case "task":
+    case "application":
+    case "reminder":
+    case "other":
     default:
       return "secondary";
   }
 }
 
-function getEventLabel(type: CalendarEventType) {
-  switch (type) {
-    case "deadline":
-      return "Deadline";
-    case "interview":
-      return "Interview";
-    case "goal":
-      return "Goal";
-    case "roadmap":
-      return "Roadmap";
-    case "task":
-    default:
-      return "Task";
-  }
+function LoadingState() {
+  return (
+    <div className="flex flex-col gap-6">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <Skeleton className="h-28" />
+        <Skeleton className="h-28" />
+        <Skeleton className="h-28" />
+        <Skeleton className="h-28" />
+      </div>
+      <Skeleton className="h-24" />
+      <Skeleton className="h-[40rem]" />
+    </div>
+  );
 }
 
 function WorkspaceTabStrip({
@@ -129,7 +158,7 @@ function WorkspaceTabStrip({
       <div className="flex items-center justify-between gap-3">
         <div>
           <h2 className="text-base font-semibold">Workspace Areas</h2>
-          <p className="text-sm text-muted-foreground">Move between active career workstreams without losing context.</p>
+          <p className="text-sm text-muted-foreground">Resume, applications, goals, calendar, and settings now share the same live data flow.</p>
         </div>
       </div>
       <div aria-label="Workspace tabs" className="flex gap-2 overflow-x-auto pb-1" role="tablist">
@@ -165,12 +194,53 @@ function WorkspaceTabStrip({
   );
 }
 
-function WorkspaceInsightsRow() {
+function WorkspaceInsightsRow({
+  applications,
+  goals,
+  stats,
+}: {
+  applications: WorkspaceApplication[];
+  goals: WorkspaceGoal[];
+  stats: {
+    applicationCount: number;
+    interviewCount: number;
+    goalCount: number;
+    todoCount: number;
+    resumeReady: boolean;
+    upcomingEventCount: number;
+  };
+}) {
+  const items = [
+    {
+      label: "Tracked applications",
+      value: String(stats.applicationCount),
+      helper: `${stats.interviewCount} interview track${stats.interviewCount === 1 ? "" : "s"} active`,
+      icon: BriefcaseBusiness,
+    },
+    {
+      label: "Goals in motion",
+      value: String(stats.goalCount),
+      helper: goals.length > 0 ? `${goals.filter((goal) => goal.progress >= 60).length} goals moving well` : "Create your first goal",
+      icon: Target,
+    },
+    {
+      label: "Upcoming events",
+      value: String(stats.upcomingEventCount),
+      helper: `${stats.todoCount} open to-dos linked to goals and deadlines`,
+      icon: CalendarDays,
+    },
+    {
+      label: "Resume readiness",
+      value: stats.resumeReady ? "Ready" : "Pending",
+      helper: stats.resumeReady ? "AI Assistant and fit score grounded in your CV" : "Upload a CV to unlock grounded guidance",
+      icon: FileText,
+    },
+  ];
+
   return (
     <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-      {workspaceInsights.map((item) => {
+      {items.map((item) => {
         const Icon = item.icon;
-
         return (
           <Card key={item.label}>
             <CardHeader className="flex-row items-start justify-between gap-4">
@@ -192,8 +262,72 @@ function WorkspaceInsightsRow() {
   );
 }
 
-function ApplicationsPanel() {
-  const columns: Array<{ status: ApplicationStatus; label: string }> = [
+function ApplicationCard({
+  application,
+  isUpdating,
+  onMove,
+}: {
+  application: WorkspaceApplication;
+  isUpdating: boolean;
+  onMove: (status: TrackerApplicationStatus) => void;
+}) {
+  const currentIndex = applicationStatuses.indexOf(application.status);
+
+  return (
+    <div className="flex flex-col gap-3 rounded-md border bg-background p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-semibold">{application.role}</p>
+          <p className="truncate text-sm text-muted-foreground">{application.company}</p>
+        </div>
+        <div className="flex flex-col items-end gap-2">
+          {typeof application.fitScore === "number" ? <Badge variant="success">{application.fitScore}% fit</Badge> : null}
+          <Badge variant={getStatusBadgeVariant(application.status)}>{application.status}</Badge>
+        </div>
+      </div>
+      <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
+        {application.location ? (
+          <span className="flex items-center gap-1">
+            <BriefcaseBusiness className="size-3.5" />
+            {application.location}
+          </span>
+        ) : null}
+        {application.nextActionAt ? (
+          <span className="flex items-center gap-1">
+            <Clock3 className="size-3.5" />
+            Next action {formatShortDate(application.nextActionAt)}
+          </span>
+        ) : null}
+      </div>
+      <p className="text-sm text-muted-foreground">{application.notes || "No notes yet."}</p>
+      <div className="flex flex-wrap gap-2">
+        {applicationStatuses.map((status, index) => (
+          <Button
+            key={status}
+            disabled={isUpdating || index === currentIndex}
+            size="sm"
+            type="button"
+            variant={index === currentIndex ? "default" : "outline"}
+            onClick={() => onMove(status)}
+          >
+            {status}
+          </Button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ApplicationsPanel({
+  applications,
+  isUpdating,
+  onMove,
+}: {
+  applications: WorkspaceApplication[];
+  isUpdating: boolean;
+  onMove: (applicationId: string, status: TrackerApplicationStatus) => void;
+}) {
+  const columns: Array<{ status: TrackerApplicationStatus; label: string }> = [
     { status: "saved", label: "Saved" },
     { status: "applied", label: "Applied" },
     { status: "interviewing", label: "Interviewing" },
@@ -205,11 +339,13 @@ function ApplicationsPanel() {
     <section className="flex flex-col gap-5">
       <div className="flex flex-col gap-1">
         <h2 className="text-lg font-semibold">Application Board</h2>
-        <p className="text-sm text-muted-foreground">Keep every role in view, from quick saves to final decision points.</p>
+        <p className="text-sm text-muted-foreground">
+          This kanban is now live. Track roles from Saved through Offer by updating status directly on the cards.
+        </p>
       </div>
       <div className="grid gap-4 xl:grid-cols-5">
         {columns.map((column) => {
-          const items = workspaceApplications.filter((application) => application.status === column.status);
+          const items = applications.filter((application) => application.status === column.status);
 
           return (
             <Card key={column.status} className="min-h-[28rem]">
@@ -228,7 +364,14 @@ function ApplicationsPanel() {
                     No roles in this lane yet.
                   </div>
                 ) : (
-                  items.map((application) => <ApplicationItem key={application.id} application={application} />)
+                  items.map((application) => (
+                    <ApplicationCard
+                      key={application.id}
+                      application={application}
+                      isUpdating={isUpdating}
+                      onMove={(status) => onMove(application.id, status)}
+                    />
+                  ))
                 )}
               </CardContent>
             </Card>
@@ -239,138 +382,215 @@ function ApplicationsPanel() {
   );
 }
 
-function ApplicationItem({ application }: { application: WorkspaceApplication }) {
-  return (
-    <div className="flex flex-col gap-3 rounded-md border bg-background p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="truncate text-sm font-semibold">{application.role}</p>
-          <p className="truncate text-sm text-muted-foreground">{application.company}</p>
-        </div>
-        <Badge variant={getStatusBadgeVariant(application.status)}>{application.fitScore}%</Badge>
-      </div>
-      <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
-        <span className="flex items-center gap-1">
-          <MapPin className="size-3.5" />
-          {application.location}
-        </span>
-        <span className="flex items-center gap-1">
-          <Clock3 className="size-3.5" />
-          {application.updatedLabel}
-        </span>
-      </div>
-      <p className="text-sm text-muted-foreground">{application.notes}</p>
-    </div>
-  );
-}
+function GoalsPanel({
+  goals,
+  tasks,
+  isCreatingGoal,
+  isCreatingTask,
+  isUpdatingTask,
+  onCreateGoal,
+  onCreateTask,
+  onToggleTask,
+}: {
+  goals: WorkspaceGoal[];
+  tasks: WorkspaceTask[];
+  isCreatingGoal: boolean;
+  isCreatingTask: boolean;
+  isUpdatingTask: boolean;
+  onCreateGoal: (payload: { title: string; description: string; targetDate: string; priority: WorkspaceGoal["priority"] }) => Promise<void>;
+  onCreateTask: (goalId: string, payload: { title: string; dueAt?: string }) => Promise<void>;
+  onToggleTask: (task: WorkspaceTask) => Promise<void>;
+}) {
+  const [goalTitle, setGoalTitle] = useState("");
+  const [goalDescription, setGoalDescription] = useState("");
+  const [goalTargetDate, setGoalTargetDate] = useState(toDateTimeInputValue(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)));
+  const [goalPriority, setGoalPriority] = useState<WorkspaceGoal["priority"]>("medium");
+  const [taskDrafts, setTaskDrafts] = useState<Record<string, string>>({});
 
-function GoalsPanel() {
-  const overdueGoals = workspaceGoals.filter((goal) => new Date(goal.dueDate).getTime() < Date.now() && goal.progress < 100);
-  const upcomingTasks = workspaceGoals.flatMap((goal) =>
-    goal.tasks
-      .filter((task) => !task.done)
-      .map((task) => ({
-        goalTitle: goal.title,
-        taskTitle: task.title,
-        dueDate: goal.dueDate,
-      })),
-  );
+  const openTasks = tasks.filter((task) => task.status !== "completed" && task.status !== "cancelled");
+
+  async function handleGoalSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!goalTitle.trim()) {
+      return;
+    }
+
+    await onCreateGoal({
+      title: goalTitle.trim(),
+      description: goalDescription.trim(),
+      targetDate: fromDateTimeInputValue(goalTargetDate) ?? "",
+      priority: goalPriority,
+    });
+
+    setGoalTitle("");
+    setGoalDescription("");
+  }
+
+  async function handleTaskSubmit(event: FormEvent<HTMLFormElement>, goalId: string) {
+    event.preventDefault();
+    const title = taskDrafts[goalId]?.trim();
+    if (!title) {
+      return;
+    }
+
+    await onCreateTask(goalId, { title });
+    setTaskDrafts((current) => ({ ...current, [goalId]: "" }));
+  }
 
   return (
-    <section className="grid gap-5 xl:grid-cols-[1.4fr_0.8fr]">
+    <section className="grid gap-5 xl:grid-cols-[1.25fr_0.75fr]">
       <div className="flex flex-col gap-4">
         <div className="flex flex-col gap-1">
-          <h2 className="text-lg font-semibold">Goals in Motion</h2>
-          <p className="text-sm text-muted-foreground">Track momentum, task completion, and deadline pressure in one place.</p>
+          <h2 className="text-lg font-semibold">Goals and To-Do</h2>
+          <p className="text-sm text-muted-foreground">Goals now compute progress from real linked tasks, and the to-do list is actionable.</p>
         </div>
-        {workspaceGoals.map((goal) => (
-          <Card key={goal.id}>
-            <CardHeader>
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                <div className="flex flex-col gap-1">
-                  <div className="flex items-center gap-2">
-                    <CardTitle className="text-base">{goal.title}</CardTitle>
-                    <Badge variant={getPriorityBadgeVariant(goal.priority)}>{goal.priority} priority</Badge>
-                  </div>
-                  <CardDescription>{goal.targetRole}</CardDescription>
-                </div>
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Flag className="size-4" />
-                  Due {formatShortDate(goal.dueDate)}
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-4">
-              <div className="flex items-center justify-between gap-3 text-sm">
-                <span className="font-medium">Progress</span>
-                <span className="text-muted-foreground">{goal.progress}%</span>
-              </div>
-              <Progress value={goal.progress} />
-              <p className="text-sm text-muted-foreground">{goal.summary}</p>
-              <Separator />
-              <div className="flex flex-col gap-3">
-                <p className="text-sm font-medium">Task list</p>
-                {goal.tasks.map((task) => (
-                  <div key={task.id} className="flex items-center gap-3 rounded-md border bg-background px-3 py-2">
-                    <div
-                      className={cn(
-                        "flex size-5 items-center justify-center rounded-full border",
-                        task.done ? "border-primary bg-primary text-primary-foreground" : "border-border text-muted-foreground",
-                      )}
-                    >
-                      {task.done ? <Check className="size-3" /> : <Circle className="size-3" />}
-                    </div>
-                    <span className={cn("text-sm", task.done && "text-muted-foreground line-through")}>{task.title}</span>
-                  </div>
-                ))}
-              </div>
+        {goals.length === 0 ? (
+          <Card>
+            <CardContent className="flex min-h-56 items-center justify-center rounded-md text-center text-sm text-muted-foreground">
+              Create your first goal to start tracking progress, deadlines, and tasks.
             </CardContent>
           </Card>
-        ))}
+        ) : (
+          goals.map((goal) => (
+            <Card key={goal.id}>
+              <CardHeader>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="flex flex-col gap-1">
+                    <div className="flex items-center gap-2">
+                      <CardTitle className="text-base">{goal.title}</CardTitle>
+                      <Badge variant={getPriorityBadgeVariant(goal.priority)}>{goal.priority} priority</Badge>
+                    </div>
+                    <CardDescription>{goal.description || "No goal description yet."}</CardDescription>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Target className="size-4" />
+                    {goal.targetDate ? `Due ${formatShortDate(goal.targetDate)}` : "No deadline"}
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-4">
+                <div className="flex items-center justify-between gap-3 text-sm">
+                  <span className="font-medium">Progress</span>
+                  <span className="text-muted-foreground">{goal.progress}%</span>
+                </div>
+                <Progress value={goal.progress} />
+                <Separator />
+                <div className="flex flex-col gap-3">
+                  <p className="text-sm font-medium">Tasks</p>
+                  {goal.tasks.length === 0 ? (
+                    <div className="rounded-md border border-dashed bg-muted/40 px-4 py-4 text-sm text-muted-foreground">
+                      No tasks yet. Add the next action below.
+                    </div>
+                  ) : (
+                    goal.tasks.map((task) => (
+                      <button
+                        key={task.id}
+                        className="flex items-center gap-3 rounded-md border bg-background px-3 py-2 text-left transition-colors hover:bg-accent hover:text-accent-foreground"
+                        disabled={isUpdatingTask}
+                        type="button"
+                        onClick={() => onToggleTask(task)}
+                      >
+                        <div
+                          className={cn(
+                            "flex size-5 items-center justify-center rounded-full border",
+                            task.status === "completed"
+                              ? "border-primary bg-primary text-primary-foreground"
+                              : "border-border text-muted-foreground",
+                          )}
+                        >
+                          {task.status === "completed" ? <Check className="size-3" /> : <Circle className="size-3" />}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <span className={cn("text-sm", task.status === "completed" && "text-muted-foreground line-through")}>
+                            {task.title}
+                          </span>
+                          {task.dueAt ? <p className="mt-1 text-xs text-muted-foreground">Due {formatShortDate(task.dueAt)}</p> : null}
+                        </div>
+                      </button>
+                    ))
+                  )}
+                </div>
+                <form className="flex gap-2" onSubmit={(event) => void handleTaskSubmit(event, goal.id)}>
+                  <Input
+                    placeholder="Add a task for this goal"
+                    value={taskDrafts[goal.id] ?? ""}
+                    onChange={(event) => setTaskDrafts((current) => ({ ...current, [goal.id]: event.target.value }))}
+                  />
+                  <Button disabled={isCreatingTask || !(taskDrafts[goal.id] ?? "").trim()} type="submit" variant="outline">
+                    <Plus />
+                    Add
+                  </Button>
+                </form>
+              </CardContent>
+            </Card>
+          ))
+        )}
       </div>
 
       <div className="flex flex-col gap-4">
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Deadline Watch</CardTitle>
-            <CardDescription>Spot goals that need attention before they slip.</CardDescription>
+            <CardTitle className="text-base">Create Goal</CardTitle>
+            <CardDescription>Add a goal with a deadline and start building tasks against it.</CardDescription>
           </CardHeader>
-          <CardContent className="flex flex-col gap-3">
-            {overdueGoals.length === 0 ? (
-              <div className="rounded-md border border-dashed bg-muted/40 px-4 py-6 text-sm text-muted-foreground">
-                No overdue goals right now. The board is holding together nicely.
+          <CardContent>
+            <form className="flex flex-col gap-3" onSubmit={(event) => void handleGoalSubmit(event)}>
+              <Input placeholder="Goal title" value={goalTitle} onChange={(event) => setGoalTitle(event.target.value)} />
+              <Textarea
+                placeholder="What does success look like?"
+                value={goalDescription}
+                onChange={(event) => setGoalDescription(event.target.value)}
+              />
+              <Input type="datetime-local" value={goalTargetDate} onChange={(event) => setGoalTargetDate(event.target.value)} />
+              <div className="flex flex-wrap gap-2">
+                {(["low", "medium", "high"] as const).map((priority) => (
+                  <Button
+                    key={priority}
+                    size="sm"
+                    type="button"
+                    variant={goalPriority === priority ? "default" : "outline"}
+                    onClick={() => setGoalPriority(priority)}
+                  >
+                    {priority}
+                  </Button>
+                ))}
               </div>
-            ) : (
-              overdueGoals.map((goal) => (
-                <div key={goal.id} className="rounded-md border bg-background p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-sm font-semibold">{goal.title}</p>
-                    <Badge variant="destructive">Needs attention</Badge>
-                  </div>
-                  <p className="mt-2 text-sm text-muted-foreground">Due {formatShortDate(goal.dueDate)} with {goal.progress}% complete.</p>
-                </div>
-              ))
-            )}
+              <Button disabled={isCreatingGoal || goalTitle.trim().length < 2} type="submit">
+                <Plus />
+                Create goal
+              </Button>
+            </form>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Next Actions</CardTitle>
-            <CardDescription>Unfinished tasks sorted for the next focused session.</CardDescription>
+            <CardTitle className="text-base">Open To-Do</CardTitle>
+            <CardDescription>Every incomplete task tied to your goals, in one place.</CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
-            {upcomingTasks.map((task) => (
-              <div key={`${task.goalTitle}-${task.taskTitle}`} className="flex items-start gap-3 rounded-md border bg-background p-4">
-                <Target className="mt-0.5 size-4 text-primary" />
-                <div className="min-w-0">
-                  <p className="text-sm font-medium">{task.taskTitle}</p>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    {task.goalTitle} - Due {formatShortDate(task.dueDate)}
-                  </p>
-                </div>
+            {openTasks.length === 0 ? (
+              <div className="rounded-md border border-dashed bg-muted/40 px-4 py-6 text-sm text-muted-foreground">
+                No open tasks right now. Add a goal or mark the next task to keep momentum.
               </div>
-            ))}
+            ) : (
+              openTasks.map((task) => (
+                <div key={task.id} className="rounded-md border bg-background p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-medium">{task.title}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {task.relatedGoalTitle ?? "Standalone task"}
+                        {task.dueAt ? ` - Due ${formatShortDate(task.dueAt)}` : ""}
+                      </p>
+                    </div>
+                    <Badge variant={task.priority === "high" ? "destructive" : task.priority === "medium" ? "warning" : "secondary"}>
+                      {task.priority}
+                    </Badge>
+                  </div>
+                </div>
+              ))
+            )}
           </CardContent>
         </Card>
       </div>
@@ -378,11 +598,31 @@ function GoalsPanel() {
   );
 }
 
-function CalendarPanel() {
+function CalendarPanel({
+  calendarEvents,
+  isCreatingEvent,
+  isCreatingGoal,
+  onCreateEvent,
+  onCreateGoalFromCalendar,
+}: {
+  calendarEvents: WorkspaceCalendarEvent[];
+  isCreatingEvent: boolean;
+  isCreatingGoal: boolean;
+  onCreateEvent: (payload: { title: string; type: CalendarItemType; startsAt: string; notes: string }) => Promise<void>;
+  onCreateGoalFromCalendar: (payload: { title: string; targetDate: string }) => Promise<void>;
+}) {
   const currentMonth = useMemo(() => {
     const now = new Date();
     return new Date(now.getFullYear(), now.getMonth(), 1);
   }, []);
+
+  const [eventTitle, setEventTitle] = useState("");
+  const [eventNotes, setEventNotes] = useState("");
+  const [eventType, setEventType] = useState<CalendarItemType>("other");
+  const [eventStartsAt, setEventStartsAt] = useState(toDateTimeInputValue(new Date()));
+  const [calendarGoalTitle, setCalendarGoalTitle] = useState("");
+  const [calendarGoalDate, setCalendarGoalDate] = useState(toDateTimeInputValue(new Date(Date.now() + 5 * 24 * 60 * 60 * 1000)));
+
   const dayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   const totalDays = getDaysInMonth(currentMonth);
   const startOffset = getStartOffset(currentMonth);
@@ -394,7 +634,7 @@ function CalendarPanel() {
 
     const date = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), dayNumber);
     const iso = date.toISOString();
-    const events = workspaceCalendarEvents.filter((event) => {
+    const events = calendarEvents.filter((event) => {
       const eventDate = new Date(event.date);
       return (
         eventDate.getFullYear() === date.getFullYear() &&
@@ -410,7 +650,40 @@ function CalendarPanel() {
     };
   });
 
-  const upcomingEvents = [...workspaceCalendarEvents].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  const upcomingEvents = calendarEvents
+    .filter((event) => new Date(event.date).getTime() >= Date.now())
+    .slice(0, 8);
+
+  async function handleEventSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!eventTitle.trim()) {
+      return;
+    }
+
+    await onCreateEvent({
+      title: eventTitle.trim(),
+      type: eventType,
+      startsAt: fromDateTimeInputValue(eventStartsAt) ?? new Date().toISOString(),
+      notes: eventNotes.trim(),
+    });
+
+    setEventTitle("");
+    setEventNotes("");
+  }
+
+  async function handleCalendarGoalSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!calendarGoalTitle.trim()) {
+      return;
+    }
+
+    await onCreateGoalFromCalendar({
+      title: calendarGoalTitle.trim(),
+      targetDate: fromDateTimeInputValue(calendarGoalDate) ?? new Date().toISOString(),
+    });
+
+    setCalendarGoalTitle("");
+  }
 
   return (
     <section className="grid gap-5 xl:grid-cols-[1.35fr_0.75fr]">
@@ -418,17 +691,16 @@ function CalendarPanel() {
         <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h2 className="text-lg font-semibold">{formatMonthLabel(currentMonth)}</h2>
-            <p className="text-sm text-muted-foreground">Goals, deadlines, interviews, tasks, and roadmap checkpoints in one month view.</p>
+            <p className="text-sm text-muted-foreground">Real goals, tasks, deadlines, interviews, and calendar events all appear together here.</p>
           </div>
           <div className="flex flex-wrap gap-2">
-            {(["goal", "task", "deadline", "interview", "roadmap"] as CalendarEventType[]).map((type) => (
+            {(["goal", "task", "deadline", "interview", "roadmap"] as CalendarItemType[]).map((type) => (
               <Badge key={type} variant={getEventBadgeVariant(type)}>
-                {getEventLabel(type)}
+                {type}
               </Badge>
             ))}
           </div>
         </div>
-
         <div className="grid grid-cols-7 gap-2 text-xs font-medium text-muted-foreground">
           {dayLabels.map((label) => (
             <div key={label} className="px-2 py-1">
@@ -436,7 +708,6 @@ function CalendarPanel() {
             </div>
           ))}
         </div>
-
         <div className="grid grid-cols-7 gap-2">
           {cells.map((cell, index) =>
             cell ? (
@@ -453,12 +724,13 @@ function CalendarPanel() {
                         "rounded-md px-2 py-1 text-[11px] font-medium",
                         event.type === "deadline" && "bg-destructive/10 text-destructive",
                         event.type === "interview" && "bg-accent/20 text-accent-foreground",
-                        event.type === "goal" && "bg-primary/10 text-primary",
-                        event.type === "roadmap" && "bg-primary/10 text-primary",
+                        (event.type === "goal" || event.type === "roadmap") && "bg-primary/10 text-primary",
                         event.type === "task" && "bg-secondary text-secondary-foreground",
                       )}
                     >
-                      <p className="truncate">{event.timeLabel} - {event.title}</p>
+                      <p className="truncate">
+                        {event.timeLabel} - {event.title}
+                      </p>
                     </div>
                   ))}
                   {cell.events.length > 2 ? <p className="text-[11px] text-muted-foreground">+{cell.events.length - 2} more</p> : null}
@@ -474,27 +746,76 @@ function CalendarPanel() {
       <div className="flex flex-col gap-4">
         <Card>
           <CardHeader>
+            <CardTitle className="text-base">Add Calendar Item</CardTitle>
+            <CardDescription>Create a manual event that should appear alongside goals and tasks.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form className="flex flex-col gap-3" onSubmit={(event) => void handleEventSubmit(event)}>
+              <Input placeholder="Event title" value={eventTitle} onChange={(event) => setEventTitle(event.target.value)} />
+              <Input type="datetime-local" value={eventStartsAt} onChange={(event) => setEventStartsAt(event.target.value)} />
+              <div className="flex flex-wrap gap-2">
+                {(["other", "interview", "deadline", "roadmap"] as CalendarItemType[]).map((type) => (
+                  <Button
+                    key={type}
+                    size="sm"
+                    type="button"
+                    variant={eventType === type ? "default" : "outline"}
+                    onClick={() => setEventType(type)}
+                  >
+                    {type}
+                  </Button>
+                ))}
+              </div>
+              <Textarea placeholder="Notes or context" value={eventNotes} onChange={(event) => setEventNotes(event.target.value)} />
+              <Button disabled={isCreatingEvent || eventTitle.trim().length < 2} type="submit">
+                <Plus />
+                Add event
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Set Goal From Calendar</CardTitle>
+            <CardDescription>Create a goal with a real deadline directly from the calendar surface.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form className="flex flex-col gap-3" onSubmit={(event) => void handleCalendarGoalSubmit(event)}>
+              <Input placeholder="Goal title" value={calendarGoalTitle} onChange={(event) => setCalendarGoalTitle(event.target.value)} />
+              <Input type="datetime-local" value={calendarGoalDate} onChange={(event) => setCalendarGoalDate(event.target.value)} />
+              <Button disabled={isCreatingGoal || calendarGoalTitle.trim().length < 2} type="submit" variant="outline">
+                <Target />
+                Create goal
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
             <CardTitle className="text-base">Upcoming Agenda</CardTitle>
-            <CardDescription>Use this to prep the week before it crowds you.</CardDescription>
+            <CardDescription>Use this list to prep the week before it gets crowded.</CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
-            {upcomingEvents.map((event) => (
-              <div key={event.id} className="flex items-start gap-3 rounded-md border bg-background p-4">
-                <div className="flex size-9 items-center justify-center rounded-md bg-primary/10 text-primary">
-                  <CalendarDays className="size-4" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
+            {upcomingEvents.length === 0 ? (
+              <div className="rounded-md border border-dashed bg-muted/40 px-4 py-6 text-sm text-muted-foreground">
+                No upcoming events yet.
+              </div>
+            ) : (
+              upcomingEvents.map((event) => (
+                <div key={event.id} className="rounded-md border bg-background p-4">
+                  <div className="flex items-center justify-between gap-3">
                     <p className="text-sm font-medium">{event.title}</p>
-                    <Badge variant={getEventBadgeVariant(event.type)}>{getEventLabel(event.type)}</Badge>
+                    <Badge variant={getEventBadgeVariant(event.type)}>{event.type}</Badge>
                   </div>
                   <p className="mt-1 text-sm text-muted-foreground">
                     {formatShortDate(event.date)} - {event.timeLabel}
                   </p>
                   <p className="mt-2 text-sm text-muted-foreground">{event.detail}</p>
                 </div>
-              </div>
-            ))}
+              ))
+            )}
           </CardContent>
         </Card>
       </div>
@@ -508,51 +829,36 @@ function SettingsPanel() {
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Career Preferences</CardTitle>
-          <CardDescription>Keep your workspace defaults aligned with the roles you are actually targeting.</CardDescription>
+          <CardDescription>Placeholder preferences surface. This can be persisted in a later pass without touching the live tracker data.</CardDescription>
         </CardHeader>
         <CardContent>
           <FieldGroup>
             <Field>
               <FieldLabel htmlFor="settings-headline">Profile headline</FieldLabel>
-              <Input id="settings-headline" defaultValue={workspaceSettings.profileHeadline} />
+              <Input defaultValue={workspaceSettings.profileHeadline} id="settings-headline" />
             </Field>
             <Field>
               <FieldLabel htmlFor="settings-location">Target location</FieldLabel>
-              <Input id="settings-location" defaultValue={workspaceSettings.targetLocation} />
+              <Input defaultValue={workspaceSettings.targetLocation} id="settings-location" />
             </Field>
             <Field>
               <FieldLabel htmlFor="settings-compensation">Target compensation</FieldLabel>
-              <Input id="settings-compensation" defaultValue={workspaceSettings.targetCompensation} />
+              <Input defaultValue={workspaceSettings.targetCompensation} id="settings-compensation" />
             </Field>
             <Field>
               <FieldLabel htmlFor="settings-keywords">Default search keywords</FieldLabel>
-              <Textarea id="settings-keywords" defaultValue={workspaceSettings.defaultSearchKeywords} />
-              <FieldDescription>Used to seed job search and fit score review flows.</FieldDescription>
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="settings-goal">Weekly application goal</FieldLabel>
-              <Input id="settings-goal" defaultValue={workspaceSettings.weeklyApplicationGoal} />
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="settings-coaching">Coaching preference</FieldLabel>
-              <Textarea id="settings-coaching" defaultValue={workspaceSettings.coachingPreference} />
+              <Textarea defaultValue={workspaceSettings.defaultSearchKeywords} id="settings-keywords" />
+              <FieldDescription>Used to seed job search and fit review.</FieldDescription>
             </Field>
           </FieldGroup>
         </CardContent>
-        <CardFooter className="justify-between gap-3">
-          <p className="text-sm text-muted-foreground">Placeholder settings surface for future persistence.</p>
-          <Button>
-            Save preferences
-            <ArrowUpRight data-icon="inline-end" />
-          </Button>
-        </CardFooter>
       </Card>
 
       <div className="flex flex-col gap-4">
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Notifications</CardTitle>
-            <CardDescription>Choose which prompts should stay loud enough to help.</CardDescription>
+            <CardDescription>Keep the guidance loud enough to help without adding clutter.</CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
             {workspaceSettings.notifications.map((item) => (
@@ -570,7 +876,7 @@ function SettingsPanel() {
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Workspace Visibility</CardTitle>
-            <CardDescription>Choose what stays pinned in your daily command center.</CardDescription>
+            <CardDescription>Control what stays surfaced in your command center.</CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
             {workspaceSettings.visibility.map((item) => (
@@ -590,7 +896,48 @@ function SettingsPanel() {
 }
 
 export function WorkspaceHub() {
-  const [activeTab, setActiveTab] = useState<WorkspaceTab>("resume");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const defaultTab = (searchParams.get("tab") as WorkspaceTab | null) ?? "resume";
+  const [activeTab, setActiveTab] = useState<WorkspaceTab>(defaultTab);
+  const focusArea = searchParams.get("focus");
+  const workspaceOverviewQuery = useWorkspaceOverview();
+  const createGoal = useCreateGoal();
+  const createGoalTask = useCreateGoalTask();
+  const updateTask = useUpdateTask();
+  const updateApplication = useUpdateApplication();
+  const createCalendarEvent = useCreateCalendarEvent();
+
+  const overview = workspaceOverviewQuery.data;
+  const applications = overview?.applications ?? [];
+  const goals = overview?.goals ?? [];
+  const tasks = overview?.tasks ?? [];
+  const calendarEvents = overview?.calendarEvents ?? [];
+  const stats = overview?.stats ?? {
+    applicationCount: 0,
+    interviewCount: 0,
+    savedCount: 0,
+    offerCount: 0,
+    rejectedCount: 0,
+    goalCount: 0,
+    todoCount: 0,
+    completedTaskCount: 0,
+    resumeReady: false,
+    upcomingEventCount: 0,
+  };
+
+  function handleTabChange(tab: WorkspaceTab) {
+    setActiveTab(tab);
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.set("tab", tab);
+    if (tab !== "resume" && nextParams.get("focus") === "resume-upload") {
+      nextParams.delete("focus");
+    }
+    setSearchParams(nextParams);
+  }
+
+  if (workspaceOverviewQuery.isLoading) {
+    return <LoadingState />;
+  }
 
   return (
     <div className="flex flex-col gap-6">
@@ -598,41 +945,115 @@ export function WorkspaceHub() {
         <div>
           <h1 className="text-2xl font-semibold">Workspace</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Run resume prep, application tracking, planning, and scheduling from one focused control surface.
+            Track resume readiness, applications, goals, tasks, and deadlines from one live operational surface.
           </p>
         </div>
-        <div className="flex flex-wrap gap-2 text-sm text-muted-foreground">
-          <span className="flex items-center gap-1 rounded-md bg-secondary px-3 py-2 text-secondary-foreground">
-            <Sparkles className="size-4" />
-            Copilot-ready context
-          </span>
-          <span className="flex items-center gap-1 rounded-md bg-secondary px-3 py-2 text-secondary-foreground">
-            <Target className="size-4" />
-            Active planning lanes
-          </span>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            onClick={() => {
+              const nextParams = new URLSearchParams(searchParams);
+              nextParams.set("tab", "resume");
+              nextParams.set("focus", "resume-upload");
+              setSearchParams(nextParams);
+              setActiveTab("resume");
+            }}
+          >
+            <UploadCloud data-icon="inline-start" />
+            Upload CV
+          </Button>
+          <Button asChild variant="outline">
+            <Link to="/dashboard/jobs">
+              Open jobs
+              <ArrowRight data-icon="inline-end" />
+            </Link>
+          </Button>
+          <Button asChild variant="outline">
+            <Link to="/dashboard/assistant">
+              Ask AI Assistant
+              <Sparkles data-icon="inline-end" />
+            </Link>
+          </Button>
         </div>
       </div>
 
-      <WorkspaceInsightsRow />
-      <WorkspaceTabStrip activeTab={activeTab} onChange={setActiveTab} />
+      {workspaceOverviewQuery.error ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Workspace data is unavailable</CardTitle>
+            <CardDescription>{getErrorMessage(workspaceOverviewQuery.error)}</CardDescription>
+          </CardHeader>
+        </Card>
+      ) : null}
+
+      <WorkspaceInsightsRow applications={applications} goals={goals} stats={stats} />
+      <WorkspaceTabStrip activeTab={activeTab} onChange={handleTabChange} />
 
       <div aria-labelledby={`workspace-tab-${activeTab}`} id={`workspace-panel-${activeTab}`} role="tabpanel">
-        {activeTab === "resume" ? <ResumeWorkspace /> : null}
-        {activeTab === "applications" ? <ApplicationsPanel /> : null}
-        {activeTab === "goals" ? <GoalsPanel /> : null}
-        {activeTab === "calendar" ? <CalendarPanel /> : null}
+        {activeTab === "resume" ? <ResumeWorkspace highlightUpload={focusArea === "resume-upload"} /> : null}
+        {activeTab === "applications" ? (
+          <ApplicationsPanel
+            applications={applications}
+            isUpdating={updateApplication.isPending}
+            onMove={(applicationId, status) => {
+              void updateApplication.mutateAsync({ applicationId, payload: { status } });
+            }}
+          />
+        ) : null}
+        {activeTab === "goals" ? (
+          <GoalsPanel
+            goals={goals}
+            tasks={tasks}
+            isCreatingGoal={createGoal.isPending}
+            isCreatingTask={createGoalTask.isPending}
+            isUpdatingTask={updateTask.isPending}
+            onCreateGoal={async (payload) => {
+              await createGoal.mutateAsync({
+                title: payload.title,
+                description: payload.description,
+                priority: payload.priority,
+                targetDate: payload.targetDate || undefined,
+                status: "in_progress",
+              });
+            }}
+            onCreateTask={async (goalId, payload) => {
+              await createGoalTask.mutateAsync({
+                goalId,
+                payload: {
+                  title: payload.title,
+                  dueAt: payload.dueAt,
+                },
+              });
+            }}
+            onToggleTask={async (task) => {
+              await updateTask.mutateAsync({
+                taskId: task.id,
+                payload: {
+                  status: task.status === "completed" ? "todo" : "completed",
+                },
+              });
+            }}
+          />
+        ) : null}
+        {activeTab === "calendar" ? (
+          <CalendarPanel
+            calendarEvents={calendarEvents}
+            isCreatingEvent={createCalendarEvent.isPending}
+            isCreatingGoal={createGoal.isPending}
+            onCreateEvent={async (payload) => {
+              await createCalendarEvent.mutateAsync(payload);
+            }}
+            onCreateGoalFromCalendar={async (payload) => {
+              await createGoal.mutateAsync({
+                title: payload.title,
+                priority: "medium",
+                status: "in_progress",
+                targetDate: payload.targetDate,
+              });
+            }}
+          />
+        ) : null}
         {activeTab === "settings" ? <SettingsPanel /> : null}
-      </div>
-
-      <div className="flex items-center justify-between rounded-lg border bg-card px-4 py-3 text-sm shadow-sm">
-        <div className="flex items-center gap-2 text-muted-foreground">
-          <BriefcaseBusiness className="size-4" />
-          Next suggested flow: update resume wins, then move straight into jobs and fit score review.
-        </div>
-        <Link className="flex items-center gap-1 font-medium text-primary" to="/dashboard/jobs">
-          Open jobs
-          <ChevronRight className="size-4" />
-        </Link>
       </div>
     </div>
   );

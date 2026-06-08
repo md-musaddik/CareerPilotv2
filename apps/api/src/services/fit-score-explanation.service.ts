@@ -27,9 +27,7 @@ export async function explainFitScore(job: NormalizedJob, fitScore: FitScore): P
         }),
       },
     ],
-    temperature: 0.2,
   });
 
   return response.choices[0]?.message.content?.trim() ?? "";
 }
-

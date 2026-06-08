@@ -1,5 +1,5 @@
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
-import { FileText, Loader2, Save, Upload } from "lucide-react";
+import { FileText, Loader2, Save, Upload, UploadCloud } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
@@ -10,6 +10,7 @@ import { ResumeStrengthPanel } from "@/features/resume/resume-strength-panel";
 import { calculateResumeStrength } from "@/features/resume/resume-strength";
 import { useCurrentResume, useSaveResume, useUploadResume } from "@/features/resume/use-resume";
 import type { EditableResumeProfile, ResumeWorkflow, StructuredResumeData } from "@/features/resume/types";
+import { cn } from "@/lib/utils";
 
 const emptyProfile: EditableResumeProfile = {
   headline: "",
@@ -27,16 +28,32 @@ function toLines(values: string[]): string {
 function fromLines(value: string): string[] {
   return value
     .split("\n")
-    .map((line) => line.trim())
+    .filter((line) => line.trim().length > 0);
+}
+
+function sanitizeList(values: string[]): string[] {
+  return values
+    .map((value) => value.trim())
     .filter(Boolean);
+}
+
+function sanitizeProfile(profile: EditableResumeProfile): EditableResumeProfile {
+  return {
+    headline: profile.headline.trim(),
+    summary: profile.summary.trim(),
+    skills: sanitizeList(profile.skills),
+    projects: sanitizeList(profile.projects),
+    experience: sanitizeList(profile.experience),
+    education: sanitizeList(profile.education),
+  };
 }
 
 function toStructuredData(profile: EditableResumeProfile): StructuredResumeData {
   return {
-    skills: profile.skills,
-    projects: profile.projects,
-    experience: profile.experience,
-    education: profile.education,
+    skills: sanitizeList(profile.skills),
+    projects: sanitizeList(profile.projects),
+    experience: sanitizeList(profile.experience),
+    education: sanitizeList(profile.education),
   };
 }
 
@@ -69,7 +86,7 @@ function ResumeLoadingState() {
   );
 }
 
-export function ResumeWorkspace() {
+export function ResumeWorkspace({ highlightUpload = false }: { highlightUpload?: boolean }) {
   const currentResumeQuery = useCurrentResume();
   const uploadResume = useUploadResume();
   const saveResume = useSaveResume();
@@ -149,11 +166,13 @@ export function ResumeWorkspace() {
       return;
     }
 
+    const sanitizedProfile = sanitizeProfile(profile);
+
     try {
       await saveResume.mutateAsync({
         resumeId: resume.parsedResume.id,
-        editableProfile: profile,
-        structuredData: toStructuredData(profile),
+        editableProfile: sanitizedProfile,
+        structuredData: toStructuredData(sanitizedProfile),
       });
     } catch {
       return;
@@ -190,10 +209,27 @@ export function ResumeWorkspace() {
             <FieldGroup>
               <Field>
                 <FieldLabel htmlFor="resume">Resume file</FieldLabel>
+                <label
+                  className={cn(
+                    "flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border border-dashed bg-muted/40 px-4 py-6 text-center transition-colors hover:border-primary hover:bg-primary/5",
+                    highlightUpload && "border-primary bg-primary/5 ring-2 ring-primary/20",
+                    isBusy && "cursor-not-allowed opacity-70",
+                  )}
+                  htmlFor="resume"
+                >
+                  <div className="flex size-11 items-center justify-center rounded-full bg-primary/10 text-primary">
+                    <UploadCloud />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium">Choose a PDF or DOCX file</p>
+                    <p className="mt-1 text-xs text-muted-foreground">Upload your CV to unlock fit scoring, grounded AI, and real dashboard data.</p>
+                  </div>
+                </label>
                 <Input
                   id="resume"
                   accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                   aria-invalid={Boolean(localError || uploadResume.error)}
+                  className="sr-only"
                   disabled={isBusy}
                   type="file"
                   onChange={handleFileChange}

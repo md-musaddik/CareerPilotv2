@@ -32,7 +32,8 @@ export async function searchJobsWithFitScores(params: SearchJobsParams): Promise
   const jobs = searchResults.jobs.map((job) => ({
     ...job,
     fitScore: calculateFitScore(job, profile),
-  }));
+  }))
+    .sort((left, right) => right.fitScore.score - left.fitScore.score);
 
   if (params.includeExplanation) {
     for (const job of jobs) {
@@ -81,4 +82,3 @@ async function upsertSavedJobs(userId: string, jobs: NormalizedJob[]): Promise<v
     })),
   );
 }
-

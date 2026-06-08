@@ -4,6 +4,7 @@ import { healthRouter } from "./health.routes.js";
 import { jobsRouter } from "./jobs.routes.js";
 import { ragRouter } from "./rag.routes.js";
 import { resumeRouter } from "./resume.routes.js";
+import { workspaceRouter } from "./workspace.routes.js";
 
 export const v1Router = Router();
 
@@ -19,3 +20,4 @@ v1Router.use("/copilot", copilotRouter);
 v1Router.use("/jobs", jobsRouter);
 v1Router.use("/rag", ragRouter);
 v1Router.use("/resumes", resumeRouter);
+v1Router.use("/workspace", workspaceRouter);

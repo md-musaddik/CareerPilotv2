@@ -67,6 +67,11 @@ export function createApiClient({ user }: ApiClientOptions) {
 
   return {
     get: <TResponse>(path: string) => requestJson<TResponse>(path),
+    post: <TResponse>(path: string, body: unknown) =>
+      requestJson<TResponse>(path, {
+        body: JSON.stringify(body),
+        method: "POST",
+      }),
     patch: <TResponse>(path: string, body: unknown) =>
       requestJson<TResponse>(path, {
         body: JSON.stringify(body),
@@ -75,4 +80,3 @@ export function createApiClient({ user }: ApiClientOptions) {
     postForm: requestForm,
   };
 }
-

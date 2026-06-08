@@ -21,7 +21,7 @@ export async function streamCopilotResponse(
   handlers: StreamHandlers,
 ): Promise<void> {
   if (!user) {
-    throw new Error("You must be signed in to use Copilot.");
+    throw new Error("You must be signed in to use the AI Assistant.");
   }
 
   const token = await user.getIdToken();
@@ -35,7 +35,7 @@ export async function streamCopilotResponse(
   });
 
   if (!response.ok || !response.body) {
-    throw new Error(`Copilot request failed with status ${response.status}.`);
+    throw new Error(`AI Assistant request failed with status ${response.status}.`);
   }
 
   const reader = response.body.getReader();
@@ -88,7 +88,6 @@ function handleSseEvent(eventText: string, handlers: StreamHandlers): void {
   }
 
   if (eventType === "error") {
-    throw new Error(typeof payload.message === "string" ? payload.message : "Copilot response failed.");
+    throw new Error(typeof payload.message === "string" ? payload.message : "AI Assistant response failed.");
   }
 }
-

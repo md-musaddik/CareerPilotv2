@@ -14,8 +14,8 @@ const navigationItems = [
     icon: BriefcaseBusiness,
   },
   {
-    label: "Copilot",
-    href: "/dashboard/copilot",
+    label: "AI Assistant",
+    href: "/dashboard/assistant",
     icon: Bot,
   },
   {
@@ -59,10 +59,6 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void }) {
           );
         })}
       </nav>
-      <div className="border-t p-4">
-        <p className="text-xs font-medium text-muted-foreground">Phase 8</p>
-        <p className="mt-1 text-sm">Hackathon-ready demo shell with analytics, AI coaching, and workspace polish.</p>
-      </div>
     </aside>
   );
 }

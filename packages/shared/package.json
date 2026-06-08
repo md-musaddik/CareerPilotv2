@@ -25,6 +25,10 @@
     "./types/resume": {
       "types": "./src/types/resume.ts",
       "default": "./dist/types/resume.js"
+    },
+    "./types/workspace": {
+      "types": "./src/types/workspace.ts",
+      "default": "./dist/types/workspace.js"
     }
   },
   "scripts": {

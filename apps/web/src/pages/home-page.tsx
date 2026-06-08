@@ -78,7 +78,7 @@ export function HomePage() {
         ) : user ? (
           <section className="rounded-lg border bg-card p-6 text-card-foreground shadow-sm">
             <h2 className="text-lg font-semibold">Signed in</h2>
-            <p className="mt-2 text-sm text-muted-foreground">Jump into the dashboard to review resume strength, workspace analytics, and Copilot guidance.</p>
+            <p className="mt-2 text-sm text-muted-foreground">Jump into the dashboard to review resume strength, workspace analytics, and AI Assistant guidance.</p>
           </section>
         ) : (
           <AuthForm mode={authMode} onModeChange={setAuthMode} />

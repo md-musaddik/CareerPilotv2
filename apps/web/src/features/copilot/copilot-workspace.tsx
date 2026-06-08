@@ -9,6 +9,7 @@ import {
   MessageSquare,
   MessagesSquare,
   Mic,
+  RotateCcw,
   Send,
   ShieldCheck,
   Sparkles,
@@ -33,42 +34,42 @@ const quickActions: Array<{
   {
     type: "resume_review",
     title: "Resume Review",
-    description: "Get prioritized resume improvements.",
+    description: "Highest-impact improvements",
     prompt: "Review my resume and give me the highest-impact improvements.",
     icon: FileCheck2,
   },
   {
     type: "skill_gap_analysis",
     title: "Skill Gap Analysis",
-    description: "Compare my profile to my next role.",
+    description: "Compare profile to next role",
     prompt: "Analyze my skill gaps for the roles I should target next.",
     icon: GraduationCap,
   },
   {
     type: "career_roadmap",
     title: "Career Roadmap",
-    description: "Build a practical career plan.",
+    description: "30 / 60 / 90 day plan",
     prompt: "Create a career roadmap based on my resume and goals.",
     icon: Map,
   },
   {
     type: "cover_letter",
     title: "Cover Letter",
-    description: "Draft a tailored letter.",
+    description: "Draft worth reviewing",
     prompt: "Help me draft a cover letter. Ask me for job details if needed.",
     icon: Sparkles,
   },
   {
     type: "interview_coach",
     title: "Interview Coach",
-    description: "Practice questions and answers.",
+    description: "Practice and feedback",
     prompt: "Coach me for an interview using my resume context.",
     icon: Mic,
   },
   {
     type: "career_chat",
     title: "Career Chat",
-    description: "Ask anything career-related.",
+    description: "General strategy help",
     prompt: "Help me decide the best next step in my job search.",
     icon: MessageSquare,
   },
@@ -95,12 +96,22 @@ const interviewCoachPrompts = [
   },
 ] as const;
 
+type PersistedAssistantSession = {
+  actionType: CopilotActionType;
+  sessionId?: string;
+  messages: CopilotMessage[];
+};
+
 function createMessageId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
 function getErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "Copilot failed. Please try again.";
+  return error instanceof Error ? error.message : "AI Assistant failed. Please try again.";
+}
+
+function getStorageKey(userId: string) {
+  return `careerpilot-ai-assistant-session:${userId}`;
 }
 
 export function CopilotWorkspace() {
@@ -130,10 +141,10 @@ export function CopilotWorkspace() {
       case "cover_letter":
         return "Paste a job link or role details for a draft worth reviewing.";
       case "interview_coach":
-        return "Tell the coach what role you are interviewing for or start a mock loop.";
+        return "Tell the assistant what role you are interviewing for or start a mock loop.";
       case "career_chat":
       default:
-        return "Ask about your resume, gaps, roadmap, cover letter, or interview prep.";
+        return "Ask about your resume, fit, gaps, roadmap, cover letter, or interview prep.";
     }
   }, [actionType]);
 
@@ -145,6 +156,44 @@ export function CopilotWorkspace() {
 
     logElement.scrollTop = logElement.scrollHeight;
   }, [messages, isStreaming]);
+
+  useEffect(() => {
+    if (!user) {
+      setMessages([]);
+      setSessionId(undefined);
+      setActionType("career_chat");
+      return;
+    }
+
+    const rawValue = sessionStorage.getItem(getStorageKey(user.uid));
+
+    if (!rawValue) {
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(rawValue) as PersistedAssistantSession;
+      setActionType(parsed.actionType ?? "career_chat");
+      setSessionId(parsed.sessionId);
+      setMessages(parsed.messages ?? []);
+    } catch {
+      sessionStorage.removeItem(getStorageKey(user.uid));
+    }
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) {
+      return;
+    }
+
+    const payload: PersistedAssistantSession = {
+      actionType,
+      sessionId,
+      messages,
+    };
+
+    sessionStorage.setItem(getStorageKey(user.uid), JSON.stringify(payload));
+  }, [actionType, messages, sessionId, user]);
 
   async function sendMessage(message: string, selectedActionType = actionType) {
     const trimmedMessage = message.trim();
@@ -175,6 +224,7 @@ export function CopilotWorkspace() {
     setInput("");
     setError(null);
     setIsStreaming(true);
+    setActionType(selectedActionType);
 
     try {
       await streamCopilotResponse(
@@ -245,93 +295,93 @@ export function CopilotWorkspace() {
   }
 
   function handleQuickAction(type: CopilotActionType, prompt: string) {
-    setActionType(type);
     void sendMessage(prompt, type);
   }
 
-  return (
-    <div className="grid gap-5 xl:grid-cols-[20rem_1fr]">
-      <aside className="flex flex-col gap-4">
-        <div>
-          <h2 className="text-base font-semibold">Quick Actions</h2>
-          <p className="mt-1 text-sm text-muted-foreground">Start with a focused career workflow.</p>
-        </div>
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
-          {quickActions.map((action) => {
-            const Icon = action.icon;
+  function handleResetSession() {
+    if (user) {
+      sessionStorage.removeItem(getStorageKey(user.uid));
+    }
 
-            return (
-              <button
-                key={action.type}
-                aria-pressed={actionType === action.type}
-                className={cn(
-                  "rounded-lg border bg-card p-4 text-left text-card-foreground shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground",
-                  actionType === action.type && "border-primary bg-accent text-accent-foreground",
-                )}
-                disabled={isStreaming}
-                type="button"
-                onClick={() => handleQuickAction(action.type, action.prompt)}
-              >
-                <div className="flex items-center gap-3">
-                  <span className="flex size-9 items-center justify-center rounded-md bg-primary text-primary-foreground">
-                    <Icon />
-                  </span>
-                  <span className="font-semibold">{action.title}</span>
-                </div>
-                <p className="mt-3 text-sm text-muted-foreground">{action.description}</p>
-              </button>
-            );
-          })}
-        </div>
-        {activeHelperPrompts.length > 0 ? (
-          <div className="flex flex-col gap-3">
+    setMessages([]);
+    setSessionId(undefined);
+    setInput("");
+    setError(null);
+    setActionType("career_chat");
+  }
+
+  return (
+    <div className="grid gap-5 xl:grid-cols-[1fr_17rem]">
+      <Card className="min-h-[calc(100vh-11rem)]">
+        <CardHeader className="gap-4">
+          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
             <div>
-              <h3 className="text-sm font-semibold">Interview Coach Modes</h3>
-              <p className="mt-1 text-sm text-muted-foreground">Launch a tighter practice flow without rewriting the prompt from scratch.</p>
+              <CardTitle>{activeAction.title}</CardTitle>
+              <CardDescription>
+                Chat-first workspace grounded in your resume, goals, applications, chat history, and relevant resume chunks.
+              </CardDescription>
             </div>
-            {activeHelperPrompts.map((promptItem) => {
-              const Icon = promptItem.icon;
+            <div className="flex items-center gap-2">
+              <Badge variant="secondary">Session memory enabled</Badge>
+              <Button disabled={isStreaming} size="sm" type="button" variant="outline" onClick={handleResetSession}>
+                <RotateCcw data-icon="inline-start" />
+                New session
+              </Button>
+            </div>
+          </div>
+
+          <div className="grid gap-2 md:grid-cols-3 xl:grid-cols-6">
+            {quickActions.map((action) => {
+              const Icon = action.icon;
+              const isActive = action.type === actionType;
 
               return (
                 <button
-                  key={promptItem.title}
-                  className="rounded-lg border bg-card p-4 text-left text-card-foreground shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground"
+                  key={action.type}
+                  aria-pressed={isActive}
+                  className={cn(
+                    "flex items-center gap-3 rounded-lg border bg-background px-3 py-3 text-left text-sm transition-colors hover:border-primary/40 hover:bg-accent/30",
+                    isActive && "border-primary bg-accent/40",
+                  )}
                   disabled={isStreaming}
                   type="button"
-                  onClick={() => handleQuickAction("interview_coach", promptItem.prompt)}
+                  onClick={() => setActionType(action.type)}
                 >
-                  <div className="flex items-center gap-3">
-                    <span className="flex size-9 items-center justify-center rounded-md bg-primary text-primary-foreground">
-                      <Icon />
-                    </span>
-                    <span className="font-semibold">{promptItem.title}</span>
-                  </div>
-                  <p className="mt-3 text-sm text-muted-foreground">{promptItem.description}</p>
+                  <span className="flex size-9 items-center justify-center rounded-md bg-primary/10 text-primary">
+                    <Icon />
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block font-medium">{action.title}</span>
+                    <span className="block truncate text-xs text-muted-foreground">{action.description}</span>
+                  </span>
                 </button>
               );
             })}
           </div>
-        ) : null}
-      </aside>
 
-      <Card className="min-h-[calc(100vh-10rem)]">
-        <CardHeader>
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <CardTitle>{activeAction.title}</CardTitle>
-              <CardDescription>{activeAction.description}</CardDescription>
+          {activeHelperPrompts.length > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              {activeHelperPrompts.map((promptItem) => {
+                const Icon = promptItem.icon;
+                return (
+                  <Button
+                    key={promptItem.title}
+                    disabled={isStreaming}
+                    size="sm"
+                    type="button"
+                    variant="outline"
+                    onClick={() => handleQuickAction("interview_coach", promptItem.prompt)}
+                  >
+                    <Icon data-icon="inline-start" />
+                    {promptItem.title}
+                  </Button>
+                );
+              })}
             </div>
-            <div className="flex size-10 items-center justify-center rounded-md bg-primary text-primary-foreground">
-              <Bot />
-            </div>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Badge variant="secondary">Uses resume context</Badge>
-            <Badge variant="secondary">Pulls goals and applications</Badge>
-            <Badge variant="secondary">Retrieves relevant resume chunks</Badge>
-          </div>
+          ) : null}
         </CardHeader>
-        <CardContent className="flex min-h-[32rem] flex-col gap-4">
+
+        <CardContent className="flex min-h-[34rem] flex-col gap-4">
           <div
             ref={messageLogRef}
             aria-busy={isStreaming}
@@ -342,14 +392,14 @@ export function CopilotWorkspace() {
             {messages.length === 0 ? (
               <div className="flex min-h-72 flex-col items-center justify-center gap-3 text-center text-sm text-muted-foreground">
                 <Bot />
-                <p>Ask CareerPilot to review your resume, find gaps, plan your next move, draft a cover letter, or coach an interview.</p>
+                <p>Ask the AI Assistant to review your resume, find job-fit gaps, build a roadmap, draft a letter, or coach an interview.</p>
               </div>
             ) : (
               messages.map((message) => (
                 <div
                   key={message.id}
                   className={cn(
-                    "max-w-[86%] rounded-lg px-4 py-3 text-sm leading-6",
+                    "max-w-[88%] whitespace-pre-wrap break-words rounded-lg px-4 py-3 text-sm leading-6",
                     message.role === "user"
                       ? "self-end bg-primary text-primary-foreground"
                       : "self-start border bg-card text-card-foreground",
@@ -372,9 +422,9 @@ export function CopilotWorkspace() {
                 <FieldLabel htmlFor="copilot-message">Message</FieldLabel>
                 <Textarea
                   aria-invalid={Boolean(error)}
-                  id="copilot-message"
                   className="min-h-24"
                   disabled={isStreaming}
+                  id="copilot-message"
                   placeholder={placeholder}
                   value={input}
                   onChange={(event) => setInput(event.target.value)}
@@ -389,7 +439,7 @@ export function CopilotWorkspace() {
                 <p className="text-xs text-muted-foreground">
                   {actionType === "cover_letter"
                     ? "Drafts stay in-chat for review before you use them externally."
-                    : "Uses resume, goals, applications, chat history, and relevant resume chunks."}
+                    : "Conversation state is kept for this session, even if you move to another page."}
                 </p>
                 <Button disabled={isStreaming || input.trim().length < 2} type="submit">
                   {isStreaming ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <Send data-icon="inline-start" />}
@@ -400,6 +450,34 @@ export function CopilotWorkspace() {
           </form>
         </CardContent>
       </Card>
+
+      <aside className="flex flex-col gap-4">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Grounding</CardTitle>
+            <CardDescription>What the assistant is using before it answers.</CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-2">
+            <Badge variant="secondary">Resume context</Badge>
+            <Badge variant="secondary">Goals</Badge>
+            <Badge variant="secondary">Applications</Badge>
+            <Badge variant="secondary">Session chat history</Badge>
+            <Badge variant="secondary">Relevant resume chunks</Badge>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Suggested prompts</CardTitle>
+            <CardDescription>Fast ways to get a stronger answer.</CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-2 text-sm text-muted-foreground">
+            <p>Ask which missing skills are hurting fit most.</p>
+            <p>Paste a target role and request a tailored prep plan.</p>
+            <p>Request one interview question at a time for better practice.</p>
+          </CardContent>
+        </Card>
+      </aside>
     </div>
   );
 }

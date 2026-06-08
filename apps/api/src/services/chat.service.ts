@@ -54,7 +54,6 @@ export async function createCopilotCompletion(params: {
   const response = await openai.chat.completions.create({
     model: config.openaiModel,
     messages,
-    temperature: 0.4,
   });
   const content = response.choices[0]?.message.content?.trim() ?? "";
 
@@ -188,7 +187,7 @@ function buildMessages(
 
 function buildSystemPrompt(actionType: CopilotActionType, memoryContext: CopilotMemoryContext): string {
   return [
-    "You are CareerPilot's AI Copilot. Give practical, specific career guidance.",
+    "You are CareerPilot's AI Assistant. Give practical, specific career guidance.",
     "Use the provided memory context. If critical details are missing, ask concise follow-up questions.",
     "Do not claim that an application was submitted or an external action was completed.",
     "Keep responses structured, skimmable, and actionable.",
@@ -245,4 +244,3 @@ function mapActionToSessionType(actionType: CopilotActionType): "copilot" | "int
 
   return "copilot";
 }
-

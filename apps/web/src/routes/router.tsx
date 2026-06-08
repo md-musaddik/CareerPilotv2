@@ -36,8 +36,12 @@ export const router = createBrowserRouter([
             element: withSuspense(<JobsPage />),
           },
           {
-            path: "copilot",
+            path: "assistant",
             element: withSuspense(<CopilotPage />),
+          },
+          {
+            path: "copilot",
+            element: <Navigate replace to="/dashboard/assistant" />,
           },
           {
             path: "workspace",

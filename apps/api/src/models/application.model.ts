@@ -9,6 +9,8 @@ const applicationSchema = new Schema(
     savedJobId: { type: Schema.Types.ObjectId, ref: "SavedJob" },
     company: { type: String, required: true, trim: true },
     role: { type: String, required: true, trim: true },
+    location: { type: String, trim: true },
+    fitScore: { type: Number, min: 0, max: 100 },
     status: {
       type: String,
       enum: ["saved", "applied", "interviewing", "offer", "rejected", "withdrawn"],

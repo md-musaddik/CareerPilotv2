@@ -8,7 +8,7 @@ const calendarEventSchema = new Schema(
     title: { type: String, required: true, trim: true },
     type: {
       type: String,
-      enum: ["application", "interview", "goal", "task", "reminder", "other"],
+      enum: ["application", "interview", "goal", "task", "deadline", "roadmap", "reminder", "other"],
       default: "other",
       required: true,
     },
