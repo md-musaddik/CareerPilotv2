@@ -26,9 +26,7 @@ Thumbs.db
 
 .idea/
 .vscode/
-deployment-guide.md 
-environment-variable-guide.md
-github-vercel-railway-workflow.md
+
 judge-demo-script.md 
 local-setup-guide.md
 technical-documentation.md
