@@ -115,7 +115,7 @@ function getStorageKey(userId: string) {
 }
 
 export function CopilotWorkspace() {
-  const { user } = useAuth();
+  const { user, isLoading } = useAuth();
   const [actionType, setActionType] = useState<CopilotActionType>("career_chat");
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<CopilotMessage[]>([]);
@@ -124,6 +124,7 @@ export function CopilotWorkspace() {
   const [error, setError] = useState<string | null>(null);
   const assistantMessageIdRef = useRef<string | null>(null);
   const messageLogRef = useRef<HTMLDivElement | null>(null);
+  const restoredUserIdRef = useRef<string | null>(null);
 
   const activeAction = useMemo(
     () => quickActions.find((action) => action.type === actionType) ?? quickActions[quickActions.length - 1],
@@ -158,16 +159,26 @@ export function CopilotWorkspace() {
   }, [messages, isStreaming]);
 
   useEffect(() => {
+    if (isLoading) {
+      return;
+    }
+
     if (!user) {
       setMessages([]);
       setSessionId(undefined);
       setActionType("career_chat");
+      restoredUserIdRef.current = null;
+      return;
+    }
+
+    if (restoredUserIdRef.current === user.uid) {
       return;
     }
 
     const rawValue = sessionStorage.getItem(getStorageKey(user.uid));
 
     if (!rawValue) {
+      restoredUserIdRef.current = user.uid;
       return;
     }
 
@@ -176,13 +187,15 @@ export function CopilotWorkspace() {
       setActionType(parsed.actionType ?? "career_chat");
       setSessionId(parsed.sessionId);
       setMessages(parsed.messages ?? []);
+      restoredUserIdRef.current = user.uid;
     } catch {
       sessionStorage.removeItem(getStorageKey(user.uid));
+      restoredUserIdRef.current = user.uid;
     }
-  }, [user]);
+  }, [isLoading, user]);
 
   useEffect(() => {
-    if (!user) {
+    if (!user || isLoading) {
       return;
     }
 
@@ -193,7 +206,7 @@ export function CopilotWorkspace() {
     };
 
     sessionStorage.setItem(getStorageKey(user.uid), JSON.stringify(payload));
-  }, [actionType, messages, sessionId, user]);
+  }, [actionType, isLoading, messages, sessionId, user]);
 
   async function sendMessage(message: string, selectedActionType = actionType) {
     const trimmedMessage = message.trim();
@@ -311,9 +324,9 @@ export function CopilotWorkspace() {
   }
 
   return (
-    <div className="grid gap-5 xl:grid-cols-[1fr_17rem]">
+    <div className="mx-auto flex w-full max-w-6xl flex-col gap-5 pt-2">
       <Card className="min-h-[calc(100vh-11rem)]">
-        <CardHeader className="gap-4">
+        <CardHeader className="gap-4 pb-4">
           <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
             <div>
               <CardTitle>{activeAction.title}</CardTitle>
@@ -340,8 +353,8 @@ export function CopilotWorkspace() {
                   key={action.type}
                   aria-pressed={isActive}
                   className={cn(
-                    "flex items-center gap-3 rounded-lg border bg-background px-3 py-3 text-left text-sm transition-colors hover:border-primary/40 hover:bg-accent/30",
-                    isActive && "border-primary bg-accent/40",
+                    "flex items-center gap-3 rounded-lg border bg-background px-3 py-3 text-left text-sm transition-colors hover:border-primary/40 hover:bg-accent/20",
+                    isActive && "border-foreground/20 bg-foreground/[0.045]",
                   )}
                   disabled={isStreaming}
                   type="button"
@@ -386,7 +399,7 @@ export function CopilotWorkspace() {
             ref={messageLogRef}
             aria-busy={isStreaming}
             aria-live="polite"
-            className="flex flex-1 flex-col gap-3 overflow-y-auto rounded-lg border bg-background p-4"
+            className="flex min-h-[24rem] flex-1 flex-col gap-4 overflow-y-auto rounded-lg border bg-background p-4 sm:p-5"
             role="log"
           >
             {messages.length === 0 ? (
@@ -399,7 +412,7 @@ export function CopilotWorkspace() {
                 <div
                   key={message.id}
                   className={cn(
-                    "max-w-[88%] whitespace-pre-wrap break-words rounded-lg px-4 py-3 text-sm leading-6",
+                    "max-w-[88%] whitespace-pre-wrap break-words rounded-2xl px-4 py-3 text-sm leading-6 shadow-sm",
                     message.role === "user"
                       ? "self-end bg-primary text-primary-foreground"
                       : "self-start border bg-card text-card-foreground",
@@ -417,12 +430,11 @@ export function CopilotWorkspace() {
           </div>
 
           <form onSubmit={handleSubmit}>
-            <FieldGroup>
+            <FieldGroup className="gap-3">
               <Field>
-                <FieldLabel htmlFor="copilot-message">Message</FieldLabel>
                 <Textarea
                   aria-invalid={Boolean(error)}
-                  className="min-h-24"
+                  className="min-h-24 max-h-32 resize-none overflow-y-auto rounded-2xl"
                   disabled={isStreaming}
                   id="copilot-message"
                   placeholder={placeholder}
@@ -450,34 +462,6 @@ export function CopilotWorkspace() {
           </form>
         </CardContent>
       </Card>
-
-      <aside className="flex flex-col gap-4">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Grounding</CardTitle>
-            <CardDescription>What the assistant is using before it answers.</CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-2">
-            <Badge variant="secondary">Resume context</Badge>
-            <Badge variant="secondary">Goals</Badge>
-            <Badge variant="secondary">Applications</Badge>
-            <Badge variant="secondary">Session chat history</Badge>
-            <Badge variant="secondary">Relevant resume chunks</Badge>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Suggested prompts</CardTitle>
-            <CardDescription>Fast ways to get a stronger answer.</CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-2 text-sm text-muted-foreground">
-            <p>Ask which missing skills are hurting fit most.</p>
-            <p>Paste a target role and request a tailored prep plan.</p>
-            <p>Request one interview question at a time for better practice.</p>
-          </CardContent>
-        </Card>
-      </aside>
     </div>
   );
 }

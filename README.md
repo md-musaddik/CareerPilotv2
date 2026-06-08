@@ -1,130 +1,267 @@
 # CareerPilot
 
-CareerPilot is an AI-powered Career Operating System for the full job-search lifecycle: resume ingestion, resume intelligence, fit scoring, AI coaching, applications, goals, and calendar planning.
+CareerPilot is an AI-powered career operating system built for the Poridhi Codesprint hackathon. It turns a user's CV into the source of truth for job search, fit scoring, AI guidance, and day-to-day execution.
 
-The product is built as a focused workspace instead of a marketing site. Every major surface is designed to help a user answer three questions quickly:
+It covers the four required pillars:
 
-- Where do I stand?
-- What should I do next?
-- Why does this recommendation matter?
+1. Job Hunter Agent
+2. Profile and Resume Intelligence (RAG Core)
+3. Personal AI Assistant
+4. Productivity and Progress Tracker
 
-## What It Does
+## Core Features
 
-- Resume upload with PDF and DOCX support
-- Resume parsing into skills, projects, experience, and education
-- Cloudinary for original resume files
-- MongoDB storage for structured resume data and profile state
-- OpenAI embeddings with MongoDB Atlas Vector Search for RAG
-- Adzuna job search integration
-- Deterministic fit scoring with score breakdowns
-- AI Copilot for resume review, skill gap analysis, career roadmap, cover letters, interview coaching, and career chat
-- Workspace hub for resume, applications, goals, calendar, and settings
-- Dashboard analytics, AI insight cards, and resume strength scoring
+- PDF/DOCX CV upload and parsing
+- CV chunking, embedding, and vector retrieval
+- Live job search with provider aggregation
+- Deterministic fit score with reasoning
+- AI Assistant with session memory
+- Cover letter generation
+- Application tracker, goals, tasks, and calendar
 
 ## Stack
 
 - Frontend: React, Vite, TypeScript, React Router, Tailwind CSS, shadcn/ui, React Query
 - Backend: Node.js, Express, TypeScript
 - Database: MongoDB Atlas
+- Vector Search: MongoDB Atlas Vector Search
 - Auth: Firebase Auth
 - Storage: Cloudinary
 - AI: OpenAI
-- Jobs: Adzuna API
-- Deployment: Vercel for frontend, Railway for backend
+- Job Providers: Adzuna, Jooble
+- Deployment: Vercel, Railway
 
-## Architecture
+## Architecture Diagram
 
-The permanent source of truth is [AGENTS.md](</D:/CodeSprint 2026/CareerPilot v2/AGENTS.md>).
+This repository includes the required data-flow diagram from CV upload through agent response.
 
-Useful architecture docs:
+```mermaid
+flowchart TD
+    User["User"]
+    Web["React Web App"]
+    Firebase["Firebase Auth"]
+    API["Express API (/api/v1)"]
+    Cloudinary["Cloudinary"]
+    Extract["Resume Text Extraction"]
+    Parse["Resume Section Parsing"]
+    MongoResume["MongoDB Atlas<br/>resumeDocuments + parsedResumes + profiles"]
+    Chunk["Chunking by section<br/>skills / projects / experience / education"]
+    Embed["OpenAI Embeddings<br/>text-embedding-3-small"]
+    MongoChunks["MongoDB Atlas<br/>resumeChunks"]
+    Vector["Atlas Vector Search"]
+    Adzuna["Adzuna API"]
+    Jooble["Jooble API"]
+    Intent["Natural-language query parser"]
+    Filter["Provider merge + filter + dedupe"]
+    Fit["Deterministic Fit Score Engine"]
+    Memory["Assistant Memory Builder<br/>resume + goals + applications + chat + retrieved chunks"]
+    OpenAI["OpenAI Chat Model"]
+    Stream["Streaming AI Response"]
+    Workspace["Applications / Goals / Tasks / Calendar"]
 
-- [System overview](</D:/CodeSprint 2026/CareerPilot v2/docs/architecture/overview.md>)
-- [System diagram](</D:/CodeSprint 2026/CareerPilot v2/docs/architecture/system-diagram.md>)
-- [RAG architecture](</D:/CodeSprint 2026/CareerPilot v2/docs/architecture/rag.md>)
-- [Fit score architecture](</D:/CodeSprint 2026/CareerPilot v2/docs/architecture/fit-score.md>)
-- [AI Copilot architecture](</D:/CodeSprint 2026/CareerPilot v2/docs/architecture/ai-copilot.md>)
-- [Technical documentation](</D:/CodeSprint 2026/CareerPilot v2/docs/technical-documentation.md>)
-- [Database design](</D:/CodeSprint 2026/CareerPilot v2/docs/database/design.md>)
+    User -->|login| Web
+    Web -->|ID token| Firebase
+    Web -->|Bearer token + requests| API
+    API -->|verify token| Firebase
 
-## Repository Structure
+    User -->|upload PDF/DOCX CV| Web
+    Web -->|multipart upload| API
+    API -->|store original CV| Cloudinary
+    API --> Extract --> Parse --> MongoResume
+    Parse --> Chunk --> Embed --> MongoChunks
+    MongoChunks --> Vector
 
-```txt
-apps/
-  web/                 React/Vite frontend
-  api/                 Express backend
-packages/
-  shared/              Shared TypeScript contracts
-docs/
-  architecture/        Architecture documentation
-  api/                 API documentation
-  database/            Database documentation
-scripts/               Automation scripts
+    User -->|search in natural language| Web
+    Web --> API
+    API --> Intent
+    Intent --> Adzuna
+    Intent --> Jooble
+    Adzuna --> Filter
+    Jooble --> Filter
+    Filter --> Fit
+    MongoResume --> Fit
+    Fit -->|ranked job cards + fit reasoning| Web
+
+    User -->|ask AI Assistant| Web
+    Web -->|chat request| API
+    API -->|load tracker state| Workspace
+    API -->|load resume/profile| MongoResume
+    API -->|retrieve relevant chunks| Vector
+    Workspace --> Memory
+    MongoResume --> Memory
+    Vector --> Memory
+    Memory --> OpenAI
+    OpenAI --> Stream --> Web
 ```
 
-## Quick Start
+Detailed diagram and supporting docs:
 
-1. Install dependencies:
+- [Architecture Diagram](docs/architecture/system-diagram.md)
+- [Architecture Overview](docs/architecture/overview.md)
+- [RAG Architecture](docs/architecture/rag.md)
+- [AI Assistant Architecture](docs/architecture/ai-copilot.md)
+- [Fit Score Architecture](docs/architecture/fit-score.md)
+- [Technical Documentation](docs/technical-documentation.md)
+- [System Design Document](docs/system-design-document.md)
+
+## Setup Steps
+
+### 1. Prerequisites
+
+- Node.js 20+
+- npm
+- MongoDB Atlas database
+- Firebase project with Authentication enabled
+- Cloudinary account
+- OpenAI API key
+- Adzuna API credentials
+- Jooble API key
+
+### 2. Clone and install
 
 ```bash
+git clone <your-public-repo-url>
+cd careerpilot
 npm install
 ```
 
-2. Copy `.env.example` to `.env` and fill in required values.
+### 3. Create the environment file
 
-3. Start the frontend:
+Windows:
 
 ```bash
-npm run dev:web
+copy .env.example .env
 ```
 
-4. Start the backend:
+macOS/Linux:
+
+```bash
+cp .env.example .env
+```
+
+## Required Environment Variables
+
+### App runtime
+
+- `NODE_ENV`
+- `PORT`
+- `CLIENT_URL`
+- `VITE_API_BASE_URL`
+- `CORS_ORIGIN`
+- `LOG_LEVEL`
+
+### MongoDB Atlas
+
+- `MONGODB_URI`
+- `MONGODB_DIRECT_URI` (recommended fallback)
+- `MONGODB_DATABASE`
+- `MONGODB_VECTOR_SEARCH_INDEX`
+
+### Firebase client
+
+- `VITE_FIREBASE_API_KEY`
+- `VITE_FIREBASE_AUTH_DOMAIN`
+- `VITE_FIREBASE_PROJECT_ID`
+- `VITE_FIREBASE_STORAGE_BUCKET`
+- `VITE_FIREBASE_MESSAGING_SENDER_ID`
+- `VITE_FIREBASE_APP_ID`
+
+### Firebase Admin
+
+- `FIREBASE_PROJECT_ID`
+- `FIREBASE_CLIENT_EMAIL`
+- `FIREBASE_PRIVATE_KEY`
+
+### Cloudinary
+
+- `CLOUDINARY_URL` or:
+  - `CLOUDINARY_CLOUD_NAME`
+  - `CLOUDINARY_API_KEY`
+  - `CLOUDINARY_API_SECRET`
+- `CLOUDINARY_FOLDER`
+
+### OpenAI
+
+- `OPENAI_API_KEY`
+- `OPENAI_MODEL`
+- `OPENAI_EMBEDDING_MODEL`
+
+### Job providers
+
+- `ADZUNA_APP_ID`
+- `ADZUNA_APP_KEY`
+- `ADZUNA_COUNTRY`
+- `JOOBLE_API_KEY`
+
+More detail:
+
+- [Environment Variable Guide](docs/environment-variable-guide.md)
+
+## How To Run Locally
+
+### Start the backend
 
 ```bash
 npm run dev:api
 ```
 
-5. Open the app:
+Backend health check:
 
-- Frontend: `http://localhost:5173`
-- API health: `http://localhost:4000/api/v1/health`
+```txt
+http://localhost:4000/api/v1/health
+```
 
-For fuller setup details, see:
+### Start the frontend
 
-- [Local setup guide](</D:/CodeSprint 2026/CareerPilot v2/docs/local-setup-guide.md>)
-- [Environment variable guide](</D:/CodeSprint 2026/CareerPilot v2/docs/environment-variable-guide.md>)
+Open a second terminal:
 
-## Key Product Surfaces
+```bash
+npm run dev:web
+```
 
-- `/` - auth entry and product handoff
-- `/dashboard` - analytics, AI insight cards, and next actions
-- `/dashboard/jobs` - Adzuna search plus deterministic fit scoring
-- `/dashboard/copilot` - streaming AI Copilot with interview coach improvements
-- `/dashboard/workspace` - resume, applications, goals, calendar, and settings
+Frontend:
 
-## Hackathon Notes
+```txt
+http://localhost:5173
+```
 
-CareerPilot is optimized for judging around:
+## Local Smoke Test
 
-- Clear end-to-end architecture
-- Practical AI usage with retrieval grounding
-- Deterministic scoring where explainability matters
-- Strong demo flow and visible user value
-- Clean setup and deployment guidance
+1. Sign in with Firebase Auth
+2. Upload a PDF or DOCX CV
+3. Confirm parsed resume sections appear
+4. Search jobs in `/dashboard/jobs`
+5. Open AI Assistant in `/dashboard/assistant`
+6. Generate a cover letter
+7. Track an application, goal, task, or calendar item
 
-Judge-facing materials:
+## Useful Commands
 
-- [Judge demo script](</D:/CodeSprint 2026/CareerPilot v2/docs/judge-demo-script.md>)
-- [Deployment guide](</D:/CodeSprint 2026/CareerPilot v2/docs/deployment-guide.md>)
+```bash
+npm run typecheck
+npm run build
+```
 
-## Status
+## Demo And Judge Materials
 
-Implemented through Phase 8:
+- [System Design Document](docs/system-design-document.md)
+- [Deployment Guide](docs/deployment-guide.md)
+- [GitHub / Vercel / Railway Workflow](docs/github-vercel-railway-workflow.md)
 
-- Auth and core layout
-- Backend foundation
-- Resume system
-- RAG system
-- Job search and fit score
-- AI Copilot
-- Workspace hub
-- Polish, analytics, docs, and hackathon prep
+## GitHub Link Note
+
+To make links work on GitHub, use **relative links**, not local absolute file paths.
+
+Good:
+
+```md
+[Architecture Diagram](docs/architecture/system-diagram.md)
+```
+
+Bad:
+
+```md
+[Architecture Diagram](</D:/CodeSprint 2026/CareerPilot v2/docs/architecture/system-diagram.md>)
+```
+
+This README has been updated to use GitHub-friendly relative links.

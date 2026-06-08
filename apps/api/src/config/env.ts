@@ -29,6 +29,7 @@ type AppConfig = {
   adzunaAppId: string;
   adzunaAppKey: string;
   adzunaCountry: string;
+  joobleApiKey: string;
 };
 
 function readOptionalEnv(key: string): string {
@@ -103,4 +104,5 @@ export const config: AppConfig = {
   adzunaAppId: readRequiredEnv("ADZUNA_APP_ID"),
   adzunaAppKey: readRequiredEnv("ADZUNA_APP_KEY"),
   adzunaCountry: readOptionalEnv("ADZUNA_COUNTRY") || "us",
+  joobleApiKey: readOptionalEnv("JOOBLE_API_KEY"),
 };

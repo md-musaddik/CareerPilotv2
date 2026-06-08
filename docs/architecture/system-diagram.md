@@ -1,68 +1,100 @@
-# CareerPilot System Diagram
+# CareerPilot Architecture Diagram
+
+This diagram is tailored to the hackathon repository requirement: it shows the data flow from CV upload through retrieval and into the final AI assistant response.
 
 ```mermaid
-flowchart LR
+flowchart TD
     User["User"]
-    Web["React Web App<br/>Vite + React Router + React Query"]
-    Auth["Firebase Auth"]
-    API["Express API<br/>/api/v1"]
-    Storage["Cloudinary"]
-    Mongo["MongoDB Atlas"]
+    Web["React Web App"]
+    Firebase["Firebase Auth"]
+    API["Express API (/api/v1)"]
+    Cloudinary["Cloudinary"]
+    Extract["Resume Text Extraction"]
+    Parse["Resume Section Parsing"]
+    MongoResume["MongoDB Atlas<br/>resumeDocuments + parsedResumes + profiles"]
+    Chunk["Chunking by section<br/>skills / projects / experience / education"]
+    Embed["OpenAI Embeddings<br/>text-embedding-3-small"]
+    MongoChunks["MongoDB Atlas<br/>resumeChunks"]
     Vector["Atlas Vector Search"]
-    OpenAI["OpenAI API"]
     Adzuna["Adzuna API"]
+    Jooble["Jooble API"]
+    Intent["Natural-language query parser"]
+    Filter["Provider merge + filter + dedupe"]
+    Fit["Deterministic Fit Score Engine"]
+    Memory["Assistant Memory Builder<br/>resume + goals + applications + chat + retrieved chunks"]
+    OpenAI["OpenAI Chat Model"]
+    Stream["Streaming AI Response"]
+    Workspace["Applications / Goals / Tasks / Calendar"]
 
-    User --> Web
-    Web -->|Firebase login / ID token| Auth
-    Web -->|Bearer token| API
+    User -->|login| Web
+    Web -->|ID token| Firebase
+    Web -->|Bearer token + requests| API
+    API -->|verify token| Firebase
 
-    API -->|verify token| Auth
-    API --> Mongo
-    API --> Storage
-    API --> OpenAI
-    API --> Adzuna
-    Mongo --> Vector
+    User -->|upload PDF/DOCX CV| Web
+    Web -->|multipart upload| API
+    API -->|store original CV| Cloudinary
+    API --> Extract --> Parse --> MongoResume
+    Parse --> Chunk --> Embed --> MongoChunks
+    MongoChunks --> Vector
 
-    subgraph Resume Pipeline
-      Upload["Resume upload"]
-      Extract["Text extraction"]
-      Parse["Section parsing"]
-      Chunk["Chunking"]
-      Embed["Embeddings<br/>text-embedding-3-small"]
-    end
+    User -->|search jobs in natural language| Web
+    Web --> API
+    API --> Intent
+    Intent --> Adzuna
+    Intent --> Jooble
+    Adzuna --> Filter
+    Jooble --> Filter
+    API -->|load saved profile/resume| MongoResume
+    Filter --> Fit
+    MongoResume --> Fit
+    Fit -->|job cards + fit explanation| Web
 
-    API --> Upload --> Storage
-    Upload --> Extract --> Parse --> Mongo
-    Parse --> Chunk --> Embed --> Mongo
-    Mongo --> Vector
-
-    subgraph Copilot Memory
-      Profile["Parsed resume + profile"]
-      Goals["Goals"]
-      Apps["Applications"]
-      Chat["Chat history"]
-      Chunks["Relevant resume chunks"]
-    end
-
-    Mongo --> Profile
-    Mongo --> Goals
-    Mongo --> Apps
-    Mongo --> Chat
-    Vector --> Chunks
-    Profile --> API
-    Goals --> API
-    Apps --> API
-    Chat --> API
-    Chunks --> API
-
-    API -->|streaming responses| Web
+    User -->|ask AI Assistant| Web
+    Web -->|chat request| API
+    API -->|load tracker state| Workspace
+    API -->|load resume/profile| MongoResume
+    API -->|retrieve relevant chunks| Vector
+    Workspace --> Memory
+    MongoResume --> Memory
+    Vector --> Memory
+    Memory --> OpenAI
+    OpenAI --> Stream --> Web
 ```
 
-## Reading The Diagram
+## Reading The Flow
 
-- Firebase Auth is the identity authority.
-- MongoDB Atlas is the product data authority.
-- Cloudinary holds original resume files.
-- OpenAI is used only on the backend for embeddings and Copilot generation.
-- Atlas Vector Search powers retrieval over resume chunks.
-- Adzuna provides external job search data.
+### CV upload path
+
+1. The user uploads a PDF or DOCX CV.
+2. The backend stores the original file in Cloudinary.
+3. The backend extracts text and parses resume sections.
+4. Parsed profile and resume metadata are stored in MongoDB.
+5. Resume sections are chunked and embedded.
+6. Resume vectors are stored in MongoDB Atlas for retrieval.
+
+### Job-search path
+
+1. The frontend sends one natural-language query.
+2. The backend parses intent into role terms, location, date window, and job type.
+3. The backend queries Adzuna and Jooble using best-effort provider-specific mapping.
+4. Provider results are merged, filtered, deduped, and optionally remote-fallback is applied.
+5. The fit-score engine compares those jobs against the saved CV/profile.
+6. The frontend receives structured job cards ranked by deterministic fit score.
+
+### AI assistant path
+
+1. The user asks a question.
+2. The backend assembles memory from resume data, tracker data, chat history, and relevant retrieved chunks.
+3. The backend calls OpenAI with grounded context.
+4. The response is streamed back to the frontend.
+
+## Why This Matters For Judging
+
+This diagram highlights the core judging expectations:
+
+- the CV is the source of truth
+- RAG is based on actual user data
+- job search uses external providers/API calls
+- fit score is computed programmatically
+- the assistant response is grounded, not generic

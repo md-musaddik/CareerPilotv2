@@ -13,10 +13,6 @@ export function createJobsApi(user: User | null) {
         resultsPerPage: String(params.resultsPerPage ?? 10),
       });
 
-      if (params.where) {
-        searchParams.set("where", params.where);
-      }
-
       if (params.explain) {
         searchParams.set("explain", "true");
       }
@@ -25,4 +21,3 @@ export function createJobsApi(user: User | null) {
     },
   };
 }
-

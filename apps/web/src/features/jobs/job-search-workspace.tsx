@@ -60,10 +60,22 @@ function buildWhyMatch(job: JobWithFitScore): { matchSummary: string; gapSummary
       : "No explicit skill overlap detected yet";
   const missingSkillText =
     job.fitScore.missingSkills.length > 0 ? job.fitScore.missingSkills.slice(0, 3).join(", ") : "No major skill gaps surfaced";
+  const queryMatchText =
+    job.searchMatch.matchedFilters.length > 0
+      ? job.searchMatch.matchedFilters.join(" | ")
+      : job.searchMatch.matchedQueryTerms.length > 0
+        ? `Query match: ${job.searchMatch.matchedQueryTerms.slice(0, 4).join(", ")}`
+        : "Query match is weak";
+  const queryGapText =
+    job.searchMatch.warnings.length > 0
+      ? job.searchMatch.warnings[0]
+      : job.searchMatch.missingQueryTerms.length > 0
+        ? `Missing query terms: ${job.searchMatch.missingQueryTerms.slice(0, 4).join(", ")}`
+        : "No major query mismatches";
 
   return {
-    matchSummary: strongest ? `${strongest.label}: ${matchedSkillText}` : matchedSkillText,
-    gapSummary: weakest ? `${weakest.label}: ${missingSkillText}` : missingSkillText,
+    matchSummary: strongest ? `${strongest.label}: ${matchedSkillText}. ${queryMatchText}` : `${matchedSkillText}. ${queryMatchText}`,
+    gapSummary: weakest ? `${weakest.label}: ${missingSkillText}. ${queryGapText}` : `${missingSkillText}. ${queryGapText}`,
   };
 }
 
@@ -98,8 +110,9 @@ function JobCard({
     <button
       aria-pressed={isSelected}
       className={cn(
-        "w-full rounded-lg border bg-card p-4 text-left text-card-foreground shadow-sm transition-colors hover:border-primary/40 hover:bg-accent/30",
-        isSelected && "border-primary bg-accent/40",
+        "w-full rounded-lg border bg-card p-4 text-left text-card-foreground shadow-sm transition-all hover:border-primary/40 hover:bg-accent/20",
+        isSelected &&
+          "border-foreground/20 bg-foreground/[0.045] shadow-[0_18px_40px_-20px_rgba(15,23,42,0.45),0_0_0_1px_rgba(15,23,42,0.08)]",
       )}
       type="button"
       onClick={onSelect}
@@ -151,8 +164,7 @@ function LoadingCards() {
 export function JobSearchWorkspace() {
   const searchJobs = useSearchJobs();
   const createApplication = useCreateApplication();
-  const [what, setWhat] = useState("frontend developer");
-  const [where, setWhere] = useState("");
+  const [what, setWhat] = useState("");
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
 
   const jobs = useMemo(
@@ -169,7 +181,6 @@ export function JobSearchWorkspace() {
     try {
       const result = await searchJobs.mutateAsync({
         what,
-        where,
         resultsPerPage: 10,
         page: 1,
       });
@@ -191,7 +202,7 @@ export function JobSearchWorkspace() {
           job.fitScore.matchedSkills.length > 0
             ? `Strong overlap: ${job.fitScore.matchedSkills.slice(0, 5).join(", ")}`
             : "Tracked from job search results.",
-        source: "Adzuna",
+        source: job.provider === "jooble" ? "Jooble" : "Adzuna",
       });
     } catch {
       return;
@@ -199,40 +210,68 @@ export function JobSearchWorkspace() {
   }
 
   const selectedWhy = selectedJob ? buildWhyMatch(selectedJob) : null;
+  const parsedIntent = searchJobs.data?.intent;
+  const intentChips = useMemo(() => {
+    if (!parsedIntent) {
+      return [];
+    }
+
+    const chips = [...parsedIntent.roleTerms];
+    if (parsedIntent.locationText) {
+      chips.push(parsedIntent.locationText);
+    }
+    if (parsedIntent.jobType && !chips.includes(parsedIntent.jobType)) {
+      chips.push(parsedIntent.jobType);
+    }
+    if (parsedIntent.dateWindow) {
+      chips.push(parsedIntent.dateWindow.replace("_", " "));
+    }
+    return chips;
+  }, [parsedIntent]);
 
   return (
     <div className="flex flex-col gap-5">
       <Card>
         <CardHeader>
           <CardTitle>Job Search</CardTitle>
-          <CardDescription>Live Adzuna search ranked by fit score against your saved career profile.</CardDescription>
+          <CardDescription>One natural-language search field, provider-aware retrieval, and fit-ranked results grounded in your profile.</CardDescription>
         </CardHeader>
         <form onSubmit={handleSearch}>
           <CardContent>
-            <FieldGroup className="grid gap-4 md:grid-cols-[1fr_16rem]">
+            <FieldGroup>
               <Field>
-                <FieldLabel htmlFor="what">Role or keywords</FieldLabel>
-                <Input aria-invalid={Boolean(searchJobs.error)} id="what" value={what} onChange={(event) => setWhat(event.target.value)} />
-              </Field>
-              <Field>
-                <FieldLabel htmlFor="where">Location</FieldLabel>
+                <FieldLabel htmlFor="what">Natural-language job search</FieldLabel>
                 <Input
                   aria-invalid={Boolean(searchJobs.error)}
-                  id="where"
-                  placeholder="Remote, New York, London"
-                  value={where}
-                  onChange={(event) => setWhere(event.target.value)}
+                  id="what"
+                  placeholder="Find me ML internships in New York open this month"
+                  value={what}
+                  onChange={(event) => setWhat(event.target.value)}
                 />
               </Field>
             </FieldGroup>
+            {intentChips.length > 0 ? (
+              <div className="mt-4 flex flex-wrap gap-2">
+                {intentChips.map((chip) => (
+                  <Badge key={chip} variant="secondary">
+                    {chip}
+                  </Badge>
+                ))}
+              </div>
+            ) : null}
             {searchJobs.error ? (
               <Field className="mt-4" data-invalid="true">
                 <FieldError role="alert">{getErrorMessage(searchJobs.error)}</FieldError>
               </Field>
             ) : null}
+            {searchJobs.data?.warning ? (
+              <div className="mt-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                {searchJobs.data.warning}
+              </div>
+            ) : null}
           </CardContent>
           <CardFooter className="flex items-center justify-between gap-3">
-            <p className="text-sm text-muted-foreground">Results are ranked by deterministic fit score, not by vague AI preference.</p>
+            <p className="text-sm text-muted-foreground">The backend parses your search intent, merges provider results, filters them, and then ranks by deterministic fit score.</p>
             <Button disabled={searchJobs.isPending || what.trim().length < 2} type="submit">
               {searchJobs.isPending ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <Search data-icon="inline-start" />}
               Search jobs
@@ -248,7 +287,7 @@ export function JobSearchWorkspace() {
               <h2 id="job-results-heading" className="text-base font-semibold">
                 Ranked Results
               </h2>
-              <p className="text-sm text-muted-foreground">Highest-fit roles surface first based on CV-grounded scoring.</p>
+              <p className="text-sm text-muted-foreground">Results are first matched to your query, then sorted by CV-grounded fit score.</p>
             </div>
             {searchJobs.data ? <p className="text-sm text-muted-foreground">{jobs.length} shown</p> : null}
           </div>
@@ -256,7 +295,7 @@ export function JobSearchWorkspace() {
           {!searchJobs.isPending && jobs.length === 0 ? (
             <Card>
               <CardContent className="flex min-h-48 items-center justify-center text-sm text-muted-foreground">
-                Search for a role to see ranked job cards and grounded fit explanations.
+                No matching jobs found. Try broadening the role title, removing the date phrase, or searching another city or country.
               </CardContent>
             </Card>
           ) : null}
@@ -279,96 +318,97 @@ export function JobSearchWorkspace() {
               </CardContent>
             </Card>
           ) : (
-            <div className="grid gap-5 lg:grid-cols-[1fr_23rem]">
-              <Card>
-                <CardHeader>
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <CardTitle id="job-details-heading">{selectedJob.title}</CardTitle>
-                        <Badge variant={getScoreTone(selectedJob.fitScore.score)}>{selectedJob.fitScore.score}% match</Badge>
-                      </div>
-                      <CardDescription>{selectedJob.company}</CardDescription>
+            <Card>
+              <CardHeader>
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <CardTitle id="job-details-heading">{selectedJob.title}</CardTitle>
+                      <Badge variant={getScoreTone(selectedJob.fitScore.score)}>{selectedJob.fitScore.score}% match</Badge>
+                      <Badge variant="outline">{selectedJob.provider === "jooble" ? "Jooble" : "Adzuna"}</Badge>
                     </div>
-                    <BriefcaseBusiness />
+                    <CardDescription>{selectedJob.company}</CardDescription>
                   </div>
-                </CardHeader>
-                <CardContent className="flex flex-col gap-5">
-                  <div className="grid gap-3 text-sm md:grid-cols-2">
+                  <BriefcaseBusiness />
+                </div>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-6">
+                <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
+                  <div className="flex flex-col gap-5">
+                    <div className="grid gap-3 text-sm md:grid-cols-2">
+                      <div>
+                        <p className="font-medium">Location</p>
+                        <p className="mt-1 text-muted-foreground">{selectedJob.location || "Location not listed"}</p>
+                      </div>
+                      <div>
+                        <p className="font-medium">Salary</p>
+                        <p className="mt-1 text-muted-foreground">{formatSalary(selectedJob)}</p>
+                      </div>
+                    </div>
+
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <div className="rounded-lg border bg-background p-4">
+                        <div className="flex items-center gap-2">
+                          <Sparkles className="size-4 text-primary" />
+                          <p className="text-sm font-medium">Why this matches</p>
+                        </div>
+                        <p className="mt-2 text-sm text-muted-foreground">{selectedWhy?.matchSummary}</p>
+                      </div>
+                      <div className="rounded-lg border bg-background p-4">
+                        <div className="flex items-center gap-2">
+                          <ArrowUpRight className="size-4 text-destructive" />
+                          <p className="text-sm font-medium">Why this may fall short</p>
+                        </div>
+                        <p className="mt-2 text-sm text-muted-foreground">{selectedWhy?.gapSummary}</p>
+                      </div>
+                    </div>
+
                     <div>
-                      <p className="font-medium">Location</p>
-                      <p className="mt-1 text-muted-foreground">{selectedJob.location || "Location not listed"}</p>
+                      <p className="font-medium">Matched skills</p>
+                      <div className="mt-2">
+                        <ScorePills values={selectedJob.fitScore.matchedSkills} variant="secondary" />
+                      </div>
                     </div>
                     <div>
-                      <p className="font-medium">Salary</p>
-                      <p className="mt-1 text-muted-foreground">{formatSalary(selectedJob)}</p>
+                      <p className="font-medium">Missing skills</p>
+                      <div className="mt-2">
+                        <ScorePills values={selectedJob.fitScore.missingSkills} variant="destructive" />
+                      </div>
+                    </div>
+                    <div>
+                      <p className="font-medium">Description</p>
+                      <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-muted-foreground">
+                        {stripHtml(selectedJob.description)}
+                      </p>
                     </div>
                   </div>
 
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <div className="rounded-lg border bg-background p-4">
-                      <div className="flex items-center gap-2">
-                        <Sparkles className="size-4 text-primary" />
-                        <p className="text-sm font-medium">Why this matches</p>
-                      </div>
-                      <p className="mt-2 text-sm text-muted-foreground">{selectedWhy?.matchSummary}</p>
+                  <div className="rounded-xl border bg-background p-4">
+                    <div className="mb-4">
+                      <p className="text-base font-semibold">Fit Score</p>
+                      <p className="text-sm text-muted-foreground">Programmatic score with grounded reasoning by category.</p>
                     </div>
-                    <div className="rounded-lg border bg-background p-4">
-                      <div className="flex items-center gap-2">
-                        <ArrowUpRight className="size-4 text-destructive" />
-                        <p className="text-sm font-medium">Why this may fall short</p>
-                      </div>
-                      <p className="mt-2 text-sm text-muted-foreground">{selectedWhy?.gapSummary}</p>
-                    </div>
+                    <FitScoreVisualization fitScore={selectedJob.fitScore} />
                   </div>
-
-                  <div>
-                    <p className="font-medium">Matched skills</p>
-                    <div className="mt-2">
-                      <ScorePills values={selectedJob.fitScore.matchedSkills} variant="secondary" />
-                    </div>
-                  </div>
-                  <div>
-                    <p className="font-medium">Missing skills</p>
-                    <div className="mt-2">
-                      <ScorePills values={selectedJob.fitScore.missingSkills} variant="destructive" />
-                    </div>
-                  </div>
-                  <div>
-                    <p className="font-medium">Description</p>
-                    <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-muted-foreground">
-                      {stripHtml(selectedJob.description)}
-                    </p>
-                  </div>
-                </CardContent>
-                <CardFooter className="flex flex-wrap justify-between gap-3">
-                  <Button
-                    disabled={createApplication.isPending}
-                    type="button"
-                    onClick={() => void handleTrackJob(selectedJob)}
-                  >
-                    {createApplication.isPending ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <Sparkles data-icon="inline-start" />}
-                    Track in workspace
-                  </Button>
-                  <Button asChild variant="outline">
-                    <a href={selectedJob.url} rel="noreferrer" target="_blank">
-                      View on Adzuna
-                      <ExternalLink data-icon="inline-end" />
-                    </a>
-                  </Button>
-                </CardFooter>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle>Fit Score</CardTitle>
-                  <CardDescription>Programmatic score with grounded reasoning by category.</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <FitScoreVisualization fitScore={selectedJob.fitScore} />
-                </CardContent>
-              </Card>
-            </div>
+                </div>
+              </CardContent>
+              <CardFooter className="flex flex-wrap justify-between gap-3">
+                <Button
+                  disabled={createApplication.isPending}
+                  type="button"
+                  onClick={() => void handleTrackJob(selectedJob)}
+                >
+                  {createApplication.isPending ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <Sparkles data-icon="inline-start" />}
+                  Track in workspace
+                </Button>
+                <Button asChild variant="outline">
+                  <a href={selectedJob.url} rel="noreferrer" target="_blank">
+                    View on {selectedJob.provider === "jooble" ? "Jooble" : "Adzuna"}
+                    <ExternalLink data-icon="inline-end" />
+                  </a>
+                </Button>
+              </CardFooter>
+            </Card>
           )}
         </section>
       </div>

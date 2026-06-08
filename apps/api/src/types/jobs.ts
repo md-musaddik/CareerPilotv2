@@ -4,5 +4,7 @@ export type {
   JobSearchResponse,
   JobWithFitScore,
   NormalizedJob,
+  ParsedJobSearchIntent,
   ScoreBreakdownItem,
+  SearchMatchInsight,
 } from "@careerpilot/shared/types/jobs";

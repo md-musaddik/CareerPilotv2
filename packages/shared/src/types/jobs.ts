@@ -1,6 +1,6 @@
 export type NormalizedJob = {
   id: string;
-  provider: "adzuna";
+  provider: "adzuna" | "jooble";
   title: string;
   company: string;
   location: string;
@@ -12,6 +12,26 @@ export type NormalizedJob = {
   category?: string;
   createdAt?: string;
   metadata?: unknown;
+};
+
+export type ParsedJobSearchIntent = {
+  rawQuery: string;
+  normalizedQuery: string;
+  keywords: string[];
+  roleTerms: string[];
+  locationText?: string;
+  locationParts: string[];
+  jobType?: "internship" | "full-time" | "part-time" | "contract" | "remote";
+  dateWindow?: "today" | "this_week" | "this_month";
+  remoteOnly: boolean;
+};
+
+export type SearchMatchInsight = {
+  matchedQueryTerms: string[];
+  missingQueryTerms: string[];
+  matchedFilters: string[];
+  warnings: string[];
+  score: number;
 };
 
 export type ScoreBreakdownItem = {
@@ -31,12 +51,15 @@ export type FitScore = {
 
 export type JobWithFitScore = NormalizedJob & {
   fitScore: FitScore;
+  searchMatch: SearchMatchInsight;
 };
 
 export type JobSearchResponse = {
   count: number;
   page: number;
   resultsPerPage: number;
+  intent: ParsedJobSearchIntent;
+  warning?: string;
   jobs: JobWithFitScore[];
 };
 
